@@ -1,0 +1,11 @@
+{
+  "name": "Forja CGI",
+  "short_name": "Forja CGI",
+  "description": "Crie objetos 3D, renderize com realismo e integre ao seu vídeo com tracking de câmera.",
+  "start_url": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0d0e12",
+  "theme_color": "#0d0e12",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

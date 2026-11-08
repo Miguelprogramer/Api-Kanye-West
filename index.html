@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#0d0e12">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>Forja CGI</title>
+  <link rel="icon" href="icon.svg">
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="css/app.css">
+  <script type="importmap">
+    { "imports": { "three": "./lib/three/three.module.js", "three/addons/": "./lib/three/addons/" } }
+  </script>
+</head>
+<body>
+  <div id="viewport">
+    <video id="bg-video" playsinline muted hidden></video>
+    <canvas id="gl"></canvas>
+    <div id="hud-top">
+      <div class="brand">Forja <b>CGI</b></div>
+      <div id="status" class="status"></div>
+    </div>
+    <div id="scrub" class="scrub" hidden>
+      <button id="play" class="round" aria-label="Play">▶</button>
+      <input id="frame" type="range" min="0" max="0" value="0">
+      <span id="frame-label">0</span>
+    </div>
+  </div>
+
+  <nav id="tabs">
+    <button data-tab="create" class="active"><i>◆</i>Criar</button>
+    <button data-tab="material"><i>◐</i>Material</button>
+    <button data-tab="light"><i>☀</i>Luz</button>
+    <button data-tab="track"><i>⌖</i>Tracking</button>
+    <button data-tab="render"><i>●</i>Render</button>
+  </nav>
+
+  <section id="panel">
+    <!-- CRIAR -->
+    <div class="pane" data-pane="create">
+      <div class="grid prims" id="prims"></div>
+      <div class="row">
+        <label class="btn ghost">Importar .glb<input id="import-glb" type="file" accept=".glb,.gltf" hidden></label>
+        <button class="btn ghost" id="duplicate">Duplicar</button>
+        <button class="btn danger" id="delete">Apagar</button>
+      </div>
+      <div class="seg" id="gizmo-mode">
+        <button data-mode="translate" class="active">Mover</button>
+        <button data-mode="rotate">Girar</button>
+        <button data-mode="scale">Escala</button>
+        <button data-mode="drop">Soltar no chão</button>
+      </div>
+      <p class="hint" id="create-hint">Toque num objeto para selecionar. Arraste com um dedo para girar a câmera, dois para mover/zoom.</p>
+    </div>
+
+    <!-- MATERIAL -->
+    <div class="pane" data-pane="material" hidden>
+      <div class="grid mats" id="mats"></div>
+      <div class="sliders">
+        <label>Cor <input type="color" id="m-color" value="#cccccc"></label>
+        <label>Rugosidade <input type="range" id="m-rough" min="0" max="1" step="0.01"></label>
+        <label>Metal <input type="range" id="m-metal" min="0" max="1" step="0.01"></label>
+        <label>Transmissão (vidro) <input type="range" id="m-trans" min="0" max="1" step="0.01"></label>
+        <label>Verniz <input type="range" id="m-coat" min="0" max="1" step="0.01"></label>
+        <label>Emissão <input type="range" id="m-emit" min="0" max="10" step="0.1"></label>
+      </div>
+      <p class="hint" id="mat-hint">Selecione um objeto para editar o material.</p>
+    </div>
+
+    <!-- LUZ -->
+    <div class="pane" data-pane="light" hidden>
+      <div class="seg" id="env-presets">
+        <button data-env="studio" class="active">Estúdio</button>
+        <button data-env="sunset">Pôr do sol</button>
+        <button data-env="day">Dia</button>
+        <button data-env="night">Noite</button>
+      </div>
+      <div class="sliders">
+        <label>Exposição <input type="range" id="l-exposure" min="0.2" max="3" step="0.01" value="1"></label>
+        <label>Luz ambiente (HDRI) <input type="range" id="l-env" min="0" max="3" step="0.01" value="1"></label>
+        <label>Sol: intensidade <input type="range" id="l-sun" min="0" max="10" step="0.1" value="3"></label>
+        <label>Sol: direção <input type="range" id="l-azim" min="0" max="360" step="1" value="35"></label>
+        <label>Sol: altura <input type="range" id="l-elev" min="2" max="89" step="1" value="45"></label>
+        <label>Sombra suave <input type="range" id="l-soft" min="0" max="12" step="0.5" value="4"></label>
+      </div>
+      <label class="btn ghost">Carregar HDRI (.hdr)<input id="import-hdr" type="file" accept=".hdr" hidden></label>
+    </div>
+
+    <!-- TRACKING -->
+    <div class="pane" data-pane="track" hidden>
+      <p class="hint">Grave um vídeo andando devagar ao redor do lugar (sem só girar parado). O tracker do effectCraft reconstrói a câmera em 3D e você coloca objetos na cena real.</p>
+      <div class="row">
+        <label class="btn primary">Escolher vídeo<input id="video-file" type="file" accept="video/*" hidden></label>
+        <label class="btn ghost">Gravar<input id="video-cam" type="file" accept="video/*" capture="environment" hidden></label>
+      </div>
+      <div class="sliders">
+        <label>Qualidade da análise
+          <select id="t-quality">
+            <option value="480,300">Rápida</option>
+            <option value="720,500" selected>Normal</option>
+            <option value="1080,800">Detalhada</option>
+          </select>
+        </label>
+        <label>Quadros por segundo analisados
+          <select id="t-fps"><option>15</option><option selected>24</option><option>30</option></select>
+        </label>
+        <label>Tipo de lente
+          <select id="t-shot">
+            <option value="fixedAngle" selected>Zoom fixo (celular)</option>
+            <option value="variableZoom">Zoom variável</option>
+          </select>
+        </label>
+        <label class="check"><input type="checkbox" id="t-lens"> Corrigir distorção da lente</label>
+      </div>
+      <button class="btn primary wide" id="t-run" disabled>Analisar câmera</button>
+      <div class="progress" id="t-progress" hidden><div></div></div>
+      <div id="t-result" class="result" hidden></div>
+      <div class="sliders" id="t-adjust" hidden>
+        <label class="check"><input type="checkbox" id="t-points" checked> Mostrar pontos rastreados</label>
+        <label class="check"><input type="checkbox" id="t-catcher" checked> Sombras no chão real</label>
+        <label>Altura do chão <input type="range" id="t-ground-y" min="-1" max="1" step="0.01" value="0"></label>
+        <label>Girar chão <input type="range" id="t-ground-rot" min="-180" max="180" step="1" value="0"></label>
+        <label>Escala da cena (altura da câmera, m) <input type="range" id="t-scale" min="0.3" max="5" step="0.05" value="1.5"></label>
+        <button class="btn ghost" id="t-exit">Sair do tracking</button>
+      </div>
+    </div>
+
+    <!-- RENDER -->
+    <div class="pane" data-pane="render" hidden>
+      <div class="seg" id="quality">
+        <button data-q="draft">Rascunho</button>
+        <button data-q="high" class="active">Alta</button>
+        <button data-q="ultra">Ultra</button>
+      </div>
+      <div class="sliders">
+        <label class="check"><input type="checkbox" id="r-ao" checked> Oclusão de ambiente (GTAO)</label>
+        <label class="check"><input type="checkbox" id="r-bloom"> Brilho (bloom)</label>
+        <label>Granulação de filme <input type="range" id="r-grain" min="0" max="0.15" step="0.005" value="0.02"></label>
+      </div>
+      <div class="row">
+        <button class="btn primary" id="r-still">Salvar imagem</button>
+        <button class="btn primary" id="r-video" disabled>Exportar vídeo</button>
+      </div>
+      <p class="hint">“Exportar vídeo” fica disponível depois do tracking: renderiza os objetos 3D sobre o seu vídeo, quadro a quadro.</p>
+    </div>
+  </section>
+
+  <div id="toast" class="toast" hidden></div>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
