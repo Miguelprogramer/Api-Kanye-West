@@ -79,6 +79,23 @@ class PtpIpClient(
         }
     }
 
+    /** Operação que ENVIA dados pra câmera (ex.: SetExtDevicePropValue). */
+    @Synchronized
+    fun operationOut(code: Int, data: ByteArray, vararg params: Int): Response {
+        val tid = ++transactionId
+        val body = le(4 + 2 + 4 + params.size * 4).putInt(2).putShort(code.toShort()).putInt(tid)
+        params.forEach { body.putInt(it) }
+        val out = cmd.getOutputStream()
+        writePacket(out, 6, body.array())
+        writePacket(out, 9, le(12).putInt(tid).putLong(data.size.toLong()).array())
+        writePacket(out, 12, le(4).putInt(tid).array() + data)
+        val (type, payload) = readPacket(DataInputStream(cmd.getInputStream()))
+        if (type != 7) throw PtpException("Resposta inesperada (tipo $type)")
+        val rc = le(payload).short.toInt() and 0xFFFF
+        if (rc != 0x2001) throw PtpException("Operação 0x%04X falhou: resposta 0x%04X".format(code, rc))
+        return Response(rc, emptyList(), ByteArray(0))
+    }
+
     /** Bloqueia até chegar um evento da câmera (ex.: foto nova). */
     fun nextEvent(): Event {
         while (true) {
