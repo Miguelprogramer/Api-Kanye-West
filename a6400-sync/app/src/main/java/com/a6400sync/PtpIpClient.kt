@@ -17,7 +17,10 @@ class PtpIpClient(
     private val host: String = "192.168.122.1",
     private val port: Int = 15740,
     private val socketFactory: SocketFactory = SocketFactory.getDefault(),
+    private val guid: UUID = UUID.randomUUID(),
 ) {
+    class PtpException(msg: String) : Exception(msg)
+
     private lateinit var cmd: Socket
     private lateinit var evt: Socket
     private var transactionId = 0
@@ -27,19 +30,23 @@ class PtpIpClient(
 
     fun connect(name: String = "A6400Sync") {
         cmd = socketFactory.createSocket().apply { connect(InetSocketAddress(host, port), 5000); tcpNoDelay = true }
-        val guid = UUID.randomUUID().let {
+        val guidBytes = guid.let {
             ByteBuffer.allocate(16).putLong(it.mostSignificantBits).putLong(it.leastSignificantBits).array()
         }
         val nameBytes = (name + "\u0000").toByteArray(Charsets.UTF_16LE)
-        writePacket(cmd.getOutputStream(), 1, le(16 + nameBytes.size + 4).put(guid).put(nameBytes).putInt(0x00010000).array())
+        writePacket(cmd.getOutputStream(), 1, le(16 + nameBytes.size + 4).put(guidBytes).put(nameBytes).putInt(0x00010000).array())
         val (type, ack) = readPacket(DataInputStream(cmd.getInputStream()))
-        require(type == 2) { "Câmera recusou a conexão (tipo $type)" }
+        if (type == 5) {
+            val reason = if (ack.size >= 4) le(ack).int else 0
+            throw PtpException("Câmera recusou a conexão PTP/IP (Init Fail, motivo 0x%08X)".format(reason))
+        }
+        if (type != 2) throw PtpException("Resposta inesperada no handshake (tipo $type, ${ack.size} bytes)")
         val connNumber = le(ack).int
 
         evt = socketFactory.createSocket().apply { connect(InetSocketAddress(host, port), 5000) }
         writePacket(evt.getOutputStream(), 3, le(4).putInt(connNumber).array())
         val (evType, _) = readPacket(DataInputStream(evt.getInputStream()))
-        require(evType == 4) { "Canal de eventos recusado (tipo $evType)" }
+        if (evType != 4) throw PtpException("Canal de eventos recusado (tipo $evType)")
     }
 
     @Synchronized
@@ -64,9 +71,10 @@ class PtpIpClient(
                     val rc = bb.short.toInt() and 0xFFFF
                     bb.int
                     val rp = buildList { while (bb.remaining() >= 4) add(bb.int) }
+                    if (rc != 0x2001) throw PtpException("Operação 0x%04X falhou: resposta 0x%04X".format(code, rc))
                     return Response(rc, rp, data)
                 }
-                else -> error("Pacote PTP/IP inesperado: $type")
+                else -> throw PtpException("Pacote PTP/IP inesperado: tipo $type")
             }
         }
     }

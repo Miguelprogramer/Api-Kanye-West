@@ -29,6 +29,7 @@ class SyncService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val queue = Channel<SonyCamera.Photo>(capacity = 50)
     private var camera: SonyCamera? = null
+    private var diagnosed = false
     private var count = 0; private var kept = 0
 
 
@@ -53,7 +54,7 @@ class SyncService : Service() {
         while (scope.isActive) {
             try {
                 status("Conectando na a6400…")
-                val cam = SonyCamera(network.socketFactory).also { camera = it }
+                val cam = SonyCamera(network.socketFactory, Settings(this).deviceId) { log(it) }.also { camera = it }
                 cam.connect()
                 status("Conectada! Pode fotografar.")
                 cam.listen(
@@ -61,8 +62,11 @@ class SyncService : Service() {
                     onSkipped = { log("Vídeo ignorado: $it") },
                 )
             } catch (e: Exception) {
-                status("Conexão caiu (${e.message}). Tentando de novo…")
-                camera?.close(); delay(3000)
+                status("Conexão caiu. Tentando de novo…")
+                log("ERRO: ${e.javaClass.simpleName}: ${e.message}")
+                camera?.close()
+                if (!diagnosed) { diagnosed = true; Diagnostics.run(network) { log(it) } }
+                delay(4000)
             }
         }
     }

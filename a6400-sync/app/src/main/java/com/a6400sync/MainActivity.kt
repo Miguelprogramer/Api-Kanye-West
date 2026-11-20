@@ -121,7 +121,7 @@ class MainActivity : AppCompatActivity(), SyncBus.Listener {
     }
 
     override fun onLog(text: String) {
-        logLines.addFirst(text); if (logLines.size > 12) logLines.removeLast()
+        logLines.addFirst(text); if (logLines.size > 30) logLines.removeLast()
         v<TextView>(R.id.log).text = logLines.joinToString("\n")
     }
 

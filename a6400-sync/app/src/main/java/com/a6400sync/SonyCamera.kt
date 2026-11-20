@@ -10,8 +10,8 @@ import javax.net.SocketFactory
  * Quando a câmera tira uma foto no modo "Ctrl c/ Smartphone", ela dispara o evento
  * 0xC201 (ObjectAdded) com o handle especial 0xFFFFC001 -> baixamos com GetObject.
  */
-class SonyCamera(socketFactory: SocketFactory) {
-    private val ptp = PtpIpClient(socketFactory = socketFactory)
+class SonyCamera(socketFactory: SocketFactory, guid: java.util.UUID, private val log: (String) -> Unit = {}) {
+    private val ptp = PtpIpClient(socketFactory = socketFactory, guid = guid)
 
     data class Photo(val fileName: String, val format: Int, val bytes: ByteArray)
 
@@ -33,13 +33,20 @@ class SonyCamera(socketFactory: SocketFactory) {
     }
 
     fun connect() {
+        log("1/3 Abrindo canal PTP/IP (porta 15740)…")
         ptp.connect()
+        log("2/3 Abrindo sessão…")
         ptp.operation(OP_OPEN_SESSION, 1)
-        ptp.operation(OP_SDIO_CONNECT, 1, 0, 0)
-        ptp.operation(OP_SDIO_CONNECT, 2, 0, 0)
-        ptp.operation(OP_SDIO_GET_EXT_DEVICE_INFO, 0xC8)
-        ptp.operation(OP_SDIO_CONNECT, 3, 0, 0)
+        log("3/3 Autenticando com a Sony…")
+        step("SDIO 1") { ptp.operation(OP_SDIO_CONNECT, 1, 0, 0) }
+        step("SDIO 2") { ptp.operation(OP_SDIO_CONNECT, 2, 0, 0) }
+        step("ExtDeviceInfo") { ptp.operation(OP_SDIO_GET_EXT_DEVICE_INFO, 0xC8) }
+        step("SDIO 3") { ptp.operation(OP_SDIO_CONNECT, 3, 0, 0) }
     }
+
+    /** Passos da Sony podem variar por firmware: registra a falha e segue. */
+    private fun step(name: String, block: () -> Unit) =
+        try { block() } catch (e: PtpIpClient.PtpException) { log("Aviso em $name: ${e.message}") }
 
     /** Loop infinito: entrega cada foto nova assim que ela é tirada. */
     fun listen(onPhoto: (Photo) -> Unit, onSkipped: (String) -> Unit) {
