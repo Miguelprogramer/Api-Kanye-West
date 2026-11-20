@@ -32,21 +32,38 @@ object CameraNetwork {
         @Suppress("DEPRECATION")
         val wifis = cm.allNetworks.filter { cm.getNetworkCapabilities(it)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true }
         if (wifis.isEmpty()) log("Nenhuma rede Wi-Fi ativa no celular")
-        for (n in wifis) {
-            val lp = cm.getLinkProperties(n)
-            val gw = lp?.routes?.firstOrNull { it.isDefaultRoute && it.gateway != null }?.gateway?.hostAddress
-            val internet = cm.getNetworkCapabilities(n)?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
-            log("Wi-Fi: IP ${ipOf(ctx, n)} · gateway ${gw ?: "?"} · ${if (internet) "com internet" else "sem internet"}")
-            for (h in listOfNotNull(gw, "192.168.122.1").distinct()) {
-                for (port in listOf(15740, 64321, 8080)) {
-                    val ok = runCatching {
-                        n.socketFactory.createSocket().use { it.connect(java.net.InetSocketAddress(h, port), 900) }
-                    }.isSuccess
-                    if (ok) { log("Câmera encontrada em $h (porta $port)"); host = h; return n }
-                }
+        return wifis.firstOrNull { locate(ctx, it, log) }
+    }
+
+    /**
+     * Descobre o endereço da câmera NESSA rede: testa o gateway, o servidor DHCP,
+     * o ".1" da sub-rede do celular e o padrão da Sony (192.168.122.1).
+     * Prefere quem tem a porta PTP/IP (15740) aberta. Faz rede: fora da thread principal.
+     */
+    fun locate(ctx: Context, n: Network, log: (String) -> Unit): Boolean {
+        val cm = cm(ctx)
+        val lp = cm.getLinkProperties(n)
+        val gw = lp?.routes?.firstOrNull { it.gateway != null && !it.gateway!!.isAnyLocalAddress }?.gateway?.hostAddress
+        val dhcp = if (android.os.Build.VERSION.SDK_INT >= 30) lp?.dhcpServerAddress?.hostAddress else null
+        val myIps = lp?.linkAddresses?.mapNotNull { it.address.hostAddress }?.filter { it.count { c -> c == '.' } == 3 }.orEmpty()
+        val subnetOne = myIps.map { it.substringBeforeLast('.') + ".1" }
+        val internet = cm.getNetworkCapabilities(n)?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+        log("Wi-Fi: IP ${myIps.joinToString()} · gateway ${gw ?: "?"} · DHCP ${dhcp ?: "?"} · ${if (internet) "com internet" else "sem internet"}")
+        val candidates = (listOfNotNull(gw, dhcp) + subnetOne + "192.168.122.1").distinct()
+        var fallback: String? = null
+        for (h in candidates) {
+            val open = listOf(15740, 64321, 8080, 10000).filter { port ->
+                runCatching { n.socketFactory.createSocket().use { it.connect(java.net.InetSocketAddress(h, port), 900) } }.isSuccess
             }
+            log("  $h → portas abertas: ${if (open.isEmpty()) "nenhuma" else open.joinToString()}")
+            if (15740 in open) { host = h; log("Câmera encontrada em $h"); return true }
+            if (open.isNotEmpty() && fallback == null) fallback = h
         }
-        return null
+        if (fallback != null) {
+            host = fallback
+            log("Achei a câmera em $fallback, mas a porta 15740 (controle) está fechada. Na câmera use Menu → Rede → Ctrl c/ Smartphone e deixe na tela de conexão.")
+        }
+        return false
     }
 
     fun ipOf(ctx: Context, n: Network) =

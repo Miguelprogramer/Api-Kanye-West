@@ -53,22 +53,33 @@ class SyncService : Service() {
     }
 
     private suspend fun runCamera(network: Network) {
+        var fails = 0
         while (scope.isActive) {
             try {
-                status("Conectando na a6400…")
+                if (fails % 3 == 0) {
+                    status("Procurando o endereço da câmera…")
+                    if (!CameraNetwork.locate(this, network) { log(it) }) {
+                        fails++
+                        status("Conexão caiu. Câmera não respondeu na porta de controle")
+                        if (!diagnosed) { diagnosed = true; Diagnostics.run(network, CameraNetwork.host) { log(it) } }
+                        delay(if (fails > 3) 15000 else 5000); continue
+                    }
+                }
+                status("Conectando na a6400 (${CameraNetwork.host})…")
                 val cam = SonyCamera(network.socketFactory, Settings(this).deviceId, CameraNetwork.host) { log(it) }.also { camera = it }
                 cam.connect()
+                fails = 0
                 status("Conectada! Pode fotografar.")
                 cam.listen(
                     onPhoto = { queue.trySend(it) },
                     onSkipped = { log("Vídeo ignorado: $it") },
                 )
             } catch (e: Exception) {
+                fails++
                 status("Conexão caiu. Tentando de novo…")
                 log("ERRO: ${e.javaClass.simpleName}: ${e.message}")
                 camera?.close()
-                if (!diagnosed) { diagnosed = true; Diagnostics.run(network, CameraNetwork.host) { log(it) } }
-                delay(4000)
+                delay(if (fails > 3) 15000 else 4000)
             }
         }
     }
