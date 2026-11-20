@@ -7,10 +7,10 @@ import java.net.URL
 
 /** Testa o que a câmera expõe na rede pra descobrir qual protocolo ela fala nesse modo. */
 object Diagnostics {
-    private const val HOST = "192.168.122.1"
     private val PORTS = listOf(15740 to "PTP/IP", 8080 to "Camera Remote API", 10000 to "Camera Remote API (alt)", 64321 to "Descrição UPnP", 60151 to "outro")
 
-    fun run(network: Network, log: (String) -> Unit) {
+    fun run(network: Network, host: String, log: (String) -> Unit) {
+        val HOST = host
         log("── Diagnóstico ──")
         for ((port, label) in PORTS) {
             val open = try {

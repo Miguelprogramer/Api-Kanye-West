@@ -7,6 +7,8 @@
     <!-- Cabeçalho -->
     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
         android:text="A6400 Sync" android:textColor="@color/text" android:textSize="30sp" android:fontFamily="sans-serif-black"/>
+    <TextView android:id="@+id/version" android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:textColor="@color/accent" android:textSize="12sp"/>
     <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
         android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginTop="6dp">
         <View android:id="@+id/statusDot" android:layout_width="10dp" android:layout_height="10dp" android:background="@drawable/dot"/>

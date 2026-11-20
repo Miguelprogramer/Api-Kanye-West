@@ -19,3 +19,13 @@ Abra a pasta no Android Studio e rode (Android 10+).
 - `Triage.blurThreshold`: sensibilidade do detector de foco.
 - `Triage.duplicateDistance`: o quanto uma foto precisa ser parecida com outra pra contar como duplicada.
 - `AutoEdit.saturation`: intensidade da cor.
+
+## Versões
+A versão aparece no topo do app (ex.: "Versão 1.12 (build 12)"). Cada build do GitHub gera um número novo; instale sempre o maior.
+
+- **Conexão manual corrigida:** detecta a câmera testando se ela responde, sem depender do IP. Ao voltar das Configurações de Wi-Fi, conecta sozinho. Lista na Atividade o IP e o gateway de cada Wi-Fi.
+- **Protocolo Sony refeito** seguindo o libgphoto2 (SDIO + leitura da 0xD215 antes de baixar). Testes com câmera simulada.
+- **Conexão no Xiaomi:** permissões, Localização, janela de rede e plano B pelo Wi-Fi manual.
+- **Diagnóstico** de portas e erro detalhado.
+- **Novo visual:** tema escuro, painel, prévia antes/depois, ajustes e estilos.
+- **Primeira versão:** transferência por Wi-Fi, triagem, edição e organização.

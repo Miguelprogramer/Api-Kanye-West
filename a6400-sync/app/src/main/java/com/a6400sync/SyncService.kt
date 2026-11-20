@@ -43,9 +43,11 @@ class SyncService : Service() {
             if (n != null) cameraJob = scope.launch { runCamera(n) }
             else status("Conexão caiu. Wi-Fi da câmera perdido")
         }
-        val n = CameraNetwork.network ?: CameraNetwork.findExisting(this)
-        if (n != null) { log("Usando rede da câmera. IP do celular: ${CameraNetwork.ipOf(this, n)}"); cameraJob = scope.launch { runCamera(n) } }
-        else status("Conexão caiu. Celular não está no Wi-Fi da câmera")
+        scope.launch {
+            val n = CameraNetwork.network ?: CameraNetwork.findExisting(this@SyncService) { log(it) }
+            if (n != null) { log("Usando rede da câmera (${CameraNetwork.host}). IP do celular: ${CameraNetwork.ipOf(this@SyncService, n)}"); cameraJob = scope.launch { runCamera(n) } }
+            else status("Conexão caiu. Câmera não respondeu no Wi-Fi")
+        }
         scope.launch { processLoop() }
         return START_STICKY
     }
@@ -54,7 +56,7 @@ class SyncService : Service() {
         while (scope.isActive) {
             try {
                 status("Conectando na a6400…")
-                val cam = SonyCamera(network.socketFactory, Settings(this).deviceId) { log(it) }.also { camera = it }
+                val cam = SonyCamera(network.socketFactory, Settings(this).deviceId, CameraNetwork.host) { log(it) }.also { camera = it }
                 cam.connect()
                 status("Conectada! Pode fotografar.")
                 cam.listen(
@@ -65,7 +67,7 @@ class SyncService : Service() {
                 status("Conexão caiu. Tentando de novo…")
                 log("ERRO: ${e.javaClass.simpleName}: ${e.message}")
                 camera?.close()
-                if (!diagnosed) { diagnosed = true; Diagnostics.run(network) { log(it) } }
+                if (!diagnosed) { diagnosed = true; Diagnostics.run(network, CameraNetwork.host) { log(it) } }
                 delay(4000)
             }
         }

@@ -36,6 +36,9 @@ class MainActivity : AppCompatActivity(), SyncBus.Listener {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        val pi = packageManager.getPackageInfo(packageName, 0)
+        @Suppress("DEPRECATION")
+        v<TextView>(R.id.version).text = "Versão ${pi.versionName} (build ${pi.versionCode})"
         settings = Settings(this)
 
         v<RecyclerView>(R.id.recent).apply {
@@ -101,10 +104,27 @@ class MainActivity : AppCompatActivity(), SyncBus.Listener {
             }; return
         }
 
-        // 3. Já está no Wi-Fi da câmera? Usa direto.
-        CameraNetwork.findExisting(this)?.let { CameraNetwork.use(it); launchService(); return }
+        // 3. Já está no Wi-Fi da câmera? Testa de verdade (em segundo plano) e usa direto.
+        onState(SyncBus.State.SEARCHING, "Procurando a câmera no Wi-Fi…")
+        Thread {
+            val n = CameraNetwork.findExisting(this) { msg -> runOnUiThread { onLog(msg) } }
+            runOnUiThread {
+                if (n != null) { awaitingManual = false; CameraNetwork.use(n); launchService() }
+                else if (awaitingManual) { awaitingManual = false; onState(SyncBus.State.OFF, "Desconectada"); notFoundHelp() }
+                else requestViaSystem()
+            }
+        }.start()
+    }
 
-        // 4. Pede a rede pelo Android (janela do sistema)
+    /** Volta das Configurações de Wi-Fi → tenta sozinho, sem precisar tocar em nada. */
+    private var awaitingManual = false
+    override fun onRestart() { super.onRestart(); if (awaitingManual) start() }
+
+    private fun notFoundHelp() = dialog("Câmera não respondeu",
+        "O celular está no Wi-Fi, mas a câmera não respondeu. Veja a lista em Atividade (IP e gateway) e confira:\n\n• Na câmera está em Ctrl c/ Smartphone (tela de espera de conexão)\n• No Wi-Fi do celular, a rede conectada é a DIRECT-…ILCE-6400\n• Se o Xiaomi perguntou sobre \"sem internet\", escolheu manter conectado",
+        "Abrir Wi-Fi") { openWifi() }
+
+    private fun requestViaSystem() {
         if (settings.wifiPassword.isBlank()) {
             dialog("Senha do Wi-Fi da câmera", "Digite em Ajustes a senha que aparece na tela da câmera (Ctrl c/ Smartphone).\n\nOu conecte manualmente nas configurações de Wi-Fi.", "Wi-Fi manual") { openWifi() }
             return
@@ -131,7 +151,7 @@ class MainActivity : AppCompatActivity(), SyncBus.Listener {
             "Abrir Wi-Fi") { openWifi() }
     }
 
-    private fun openWifi() = startActivity(Intent(android.provider.Settings.ACTION_WIFI_SETTINGS))
+    private fun openWifi() { awaitingManual = true; startActivity(Intent(android.provider.Settings.ACTION_WIFI_SETTINGS)) }
 
     private fun dialog(title: String, msg: String, action: String, onAction: () -> Unit) {
         com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
