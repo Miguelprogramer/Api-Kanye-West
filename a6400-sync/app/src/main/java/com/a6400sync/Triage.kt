@@ -9,6 +9,7 @@ object Triage {
 
     var blurThreshold = 60.0        // variância do Laplaciano abaixo disso = desfocada/tremida
     var duplicateDistance = 6       // diferença de hash <= isso = praticamente igual à anterior
+    var checkDuplicates = true
     private val recentHashes = ArrayDeque<Pair<Long, Double>>()
 
     fun analyze(jpeg: ByteArray): Result {
@@ -29,7 +30,7 @@ object Triage {
 
         val hash = dHash(bmp)
         val dup = recentHashes.firstOrNull { java.lang.Long.bitCount(it.first xor hash) <= duplicateDistance }
-        if (dup != null && dup.second >= sharp) reasons += "duplicada"
+        if (checkDuplicates && dup != null && dup.second >= sharp) reasons += "duplicada"
         recentHashes.addFirst(hash to sharp); if (recentHashes.size > 10) recentHashes.removeLast()
 
         bmp.recycle()

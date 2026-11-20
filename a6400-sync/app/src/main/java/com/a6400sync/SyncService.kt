@@ -31,7 +31,6 @@ class SyncService : Service() {
     private var camera: SonyCamera? = null
     private var count = 0; private var kept = 0
 
-    companion object { var onStatus: ((String) -> Unit)? = null }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -59,7 +58,7 @@ class SyncService : Service() {
                 status("Conectada! Pode fotografar.")
                 cam.listen(
                     onPhoto = { queue.trySend(it) },
-                    onSkipped = { status("Ignorado (não é foto): $it") },
+                    onSkipped = { log("Vídeo ignorado: $it") },
                 )
             } catch (e: Exception) {
                 status("Conexão caiu (${e.message}). Tentando de novo…")
@@ -70,30 +69,42 @@ class SyncService : Service() {
 
     private suspend fun processLoop() {
         val org = Organizer(this)
+        val settings = Settings(this)
         for (photo in queue) {
-            count++
+            settings.applyToEngines()
             try {
                 if (photo.format == SonyCamera.FMT_ARW) {          // RAW: guarda original (edição de RAW fica pra próxima fase)
-                    org.save("Originais", photo.fileName, photo.bytes, "image/x-sony-arw"); continue
+                    org.save("Originais", photo.fileName, photo.bytes, "image/x-sony-arw")
+                    log("RAW salvo: ${photo.fileName}"); continue
                 }
                 org.save("Originais", photo.fileName, photo.bytes)
                 val t = Triage.analyze(photo.bytes)
+                val original = Triage.decodeSmall(photo.bytes, 900)
                 if (t.keep) {
-                    kept++
-                    org.save("Selecionadas", photo.fileName.replace(".JPG", "_edit.jpg", true), AutoEdit.apply(photo.bytes))
-                    status("✅ ${photo.fileName} — $kept/$count aprovadas")
+                    val out = if (settings.autoEdit) AutoEdit.apply(photo.bytes) else photo.bytes
+                    org.save("Selecionadas", photo.fileName.replace(".JPG", "_edit.jpg", true), out)
+                    SyncBus.photo(SyncBus.PhotoEvent(photo.fileName, Triage.decodeSmall(out, 900), original, true, emptyList()))
+                    log("✓ ${photo.fileName} aprovada")
                 } else {
-                    org.save("Descartadas", photo.fileName, photo.bytes)
-                    status("🗑 ${photo.fileName}: ${t.reasons.joinToString()} — $kept/$count aprovadas")
+                    if (settings.keepDiscarded) org.save("Descartadas", photo.fileName, photo.bytes)
+                    SyncBus.photo(SyncBus.PhotoEvent(photo.fileName, original, null, false, t.reasons))
+                    log("✗ ${photo.fileName}: ${t.reasons.joinToString()}")
                 }
-            } catch (e: Exception) { status("Erro em ${photo.fileName}: ${e.message}") }
+                notifyText("${SyncBus.kept}/${SyncBus.total} aprovadas")
+            } catch (e: Exception) { log("Erro em ${photo.fileName}: ${e.message}") }
         }
     }
 
     private fun status(text: String) {
-        getSystemService(NotificationManager::class.java).notify(1, notification(text))
-        onStatus?.invoke(text)
+        val st = when {
+            text.startsWith("Conectada") -> SyncBus.State.CONNECTED
+            text.startsWith("Conexão caiu") -> SyncBus.State.ERROR
+            else -> SyncBus.State.SEARCHING
+        }
+        SyncBus.state(st, text); SyncBus.log(text); notifyText(text)
     }
+    private fun log(text: String) = SyncBus.log(text)
+    private fun notifyText(text: String) = getSystemService(NotificationManager::class.java).notify(1, notification(text))
 
     private fun notification(text: String): Notification {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -102,5 +113,5 @@ class SyncService : Service() {
             .setSmallIcon(android.R.drawable.ic_menu_camera).setOngoing(true).build()
     }
 
-    override fun onDestroy() { camera?.close(); scope.cancel(); super.onDestroy() }
+    override fun onDestroy() { SyncBus.state(SyncBus.State.OFF, "Desconectada"); camera?.close(); scope.cancel(); super.onDestroy() }
 }

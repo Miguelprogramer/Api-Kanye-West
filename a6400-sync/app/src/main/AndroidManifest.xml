@@ -10,7 +10,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-    <application android:label="A6400 Sync" android:theme="@style/Theme.AppCompat.DayNight">
+    <application android:label="A6400 Sync" android:theme="@style/Theme.A6400">
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

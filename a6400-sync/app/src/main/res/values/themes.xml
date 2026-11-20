@@ -1,0 +1,17 @@
+<resources>
+    <style name="Theme.A6400" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="colorPrimary">@color/accent</item>
+        <item name="colorOnPrimary">#FFFFFF</item>
+        <item name="colorSurface">@color/surface</item>
+        <item name="android:colorBackground">@color/bg</item>
+        <item name="android:statusBarColor">@color/bg</item>
+        <item name="android:navigationBarColor">@color/bg</item>
+    </style>
+    <style name="Card" parent="Widget.Material3.CardView.Filled">
+        <item name="cardBackgroundColor">@color/surface</item>
+        <item name="cardCornerRadius">20dp</item>
+        <item name="contentPadding">16dp</item>
+    </style>
+    <style name="Label"><item name="android:textColor">@color/muted</item><item name="android:textSize">12sp</item><item name="android:letterSpacing">0.08</item><item name="android:textAllCaps">true</item></style>
+    <style name="Big"><item name="android:textColor">@color/text</item><item name="android:textSize">28sp</item><item name="android:fontFamily">sans-serif-medium</item></style>
+</resources>

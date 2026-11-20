@@ -14,6 +14,7 @@ import java.io.ByteArrayOutputStream
  */
 object AutoEdit {
     var saturation = 1.12f
+    var style = "natural"   // natural | quente | frio | pb
     var maxSide = 4096   // limite pra não estourar memória do celular
 
     fun apply(jpeg: ByteArray): ByteArray {
@@ -28,7 +29,8 @@ object AutoEdit {
             r += cr; g += cg; b += cb; lum[(cr * 299 + cg * 587 + cb * 114) / 1000]++
         }
         val avg = (r + g + b) / 3
-        val (kr, kg, kb) = listOf(avg / r, avg / g, avg / b).map { it.toFloat().coerceIn(0.8f, 1.25f) }
+        var (kr, kg, kb) = listOf(avg / r, avg / g, avg / b).map { it.toFloat().coerceIn(0.8f, 1.25f) }
+        when (style) { "quente" -> { kr *= 1.06f; kb *= 0.93f }; "frio" -> { kr *= 0.94f; kb *= 1.07f } }
         val lo = percentile(lum, px.size, 0.005); val hi = percentile(lum, px.size, 0.995)
         val scale = 255f / (hi - lo).coerceAtLeast(64); val off = -lo * scale
 
@@ -37,7 +39,7 @@ object AutoEdit {
             0f, kg * scale, 0f, 0f, off,
             0f, 0f, kb * scale, 0f, off,
             0f, 0f, 0f, 1f, 0f))
-        m.postConcat(ColorMatrix().apply { setSaturation(saturation) })
+        m.postConcat(ColorMatrix().apply { setSaturation(if (style == "pb") 0f else saturation) })
 
         val out = Bitmap.createBitmap(src.width, src.height, Bitmap.Config.ARGB_8888)
         Canvas(out).drawBitmap(src, 0f, 0f, Paint().apply { colorFilter = ColorMatrixColorFilter(m) })

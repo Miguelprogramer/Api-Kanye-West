@@ -1,0 +1,109 @@
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent" android:layout_height="match_parent" android:background="@color/bg">
+<LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:orientation="vertical" android:padding="20dp">
+
+    <!-- Cabeçalho -->
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:text="A6400 Sync" android:textColor="@color/text" android:textSize="30sp" android:fontFamily="sans-serif-black"/>
+    <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginTop="6dp">
+        <View android:id="@+id/statusDot" android:layout_width="10dp" android:layout_height="10dp" android:background="@drawable/dot"/>
+        <TextView android:id="@+id/statusText" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_marginStart="8dp" android:text="Desconectada" android:textColor="@color/muted" android:textSize="14sp"/>
+    </LinearLayout>
+
+    <!-- Estatísticas -->
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:layout_marginTop="20dp">
+        <com.google.android.material.card.MaterialCardView style="@style/Card" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginEnd="6dp">
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">
+                <TextView style="@style/Label" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Recebidas"/>
+                <TextView android:id="@+id/statTotal" style="@style/Big" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="0"/>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+        <com.google.android.material.card.MaterialCardView style="@style/Card" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginHorizontal="6dp">
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">
+                <TextView style="@style/Label" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Aprovadas"/>
+                <TextView android:id="@+id/statKept" style="@style/Big" android:textColor="@color/ok" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="0"/>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+        <com.google.android.material.card.MaterialCardView style="@style/Card" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="6dp">
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">
+                <TextView style="@style/Label" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Descartadas"/>
+                <TextView android:id="@+id/statBad" style="@style/Big" android:textColor="@color/bad" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="0"/>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+    </LinearLayout>
+    <com.google.android.material.progressindicator.LinearProgressIndicator android:id="@+id/keepRate"
+        android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp"
+        android:max="100" app:indicatorColor="@color/ok" app:trackColor="@color/bad" app:trackCornerRadius="4dp" app:trackThickness="6dp"/>
+
+    <!-- Última foto -->
+    <TextView style="@style/Label" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="24dp" android:text="Última foto"/>
+    <com.google.android.material.card.MaterialCardView android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="8dp" app:cardCornerRadius="20dp" app:cardBackgroundColor="@color/surface" app:strokeWidth="0dp">
+        <FrameLayout android:layout_width="match_parent" android:layout_height="wrap_content">
+            <ImageView android:id="@+id/preview" android:layout_width="match_parent" android:layout_height="260dp"
+                android:scaleType="centerCrop" android:contentDescription="Última foto"/>
+            <TextView android:id="@+id/previewEmpty" android:layout_width="match_parent" android:layout_height="260dp"
+                android:gravity="center" android:text="📷\nAs fotos aparecem aqui assim que você disparar" android:textColor="@color/muted"/>
+            <TextView android:id="@+id/previewBadge" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_gravity="bottom|start" android:layout_margin="12dp" android:background="@drawable/badge"
+                android:paddingHorizontal="12dp" android:paddingVertical="6dp" android:textColor="@color/text" android:visibility="gone"/>
+            <TextView android:id="@+id/previewToggle" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_gravity="top|end" android:layout_margin="12dp" android:background="@drawable/badge"
+                android:paddingHorizontal="12dp" android:paddingVertical="6dp" android:textColor="@color/text"
+                android:text="Segure: ver original" android:textSize="12sp" android:visibility="gone"/>
+        </FrameLayout>
+    </com.google.android.material.card.MaterialCardView>
+
+    <!-- Recentes -->
+    <TextView style="@style/Label" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="24dp" android:text="Recentes"/>
+    <androidx.recyclerview.widget.RecyclerView android:id="@+id/recent" android:layout_width="match_parent"
+        android:layout_height="96dp" android:layout_marginTop="8dp" android:clipToPadding="false"/>
+
+    <!-- Botão principal -->
+    <com.google.android.material.button.MaterialButton android:id="@+id/startStop"
+        android:layout_width="match_parent" android:layout_height="64dp" android:layout_marginTop="24dp"
+        android:text="Iniciar sincronização" android:textSize="16sp" app:cornerRadius="18dp" app:icon="@android:drawable/ic_menu_camera"/>
+
+    <!-- Ajustes -->
+    <TextView style="@style/Label" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="28dp" android:text="Ajustes"/>
+    <com.google.android.material.card.MaterialCardView style="@style/Card" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp">
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">
+            <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/swEdit" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="Editar automaticamente" android:textColor="@color/text" android:checked="true"/>
+            <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/swDiscard" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="Guardar cópia das descartadas" android:textColor="@color/text" android:checked="true"/>
+            <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/swDup" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="Filtrar repetidas de rajada" android:textColor="@color/text" android:checked="true"/>
+
+            <TextView android:id="@+id/lblBlur" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:textColor="@color/text"/>
+            <com.google.android.material.slider.Slider android:id="@+id/slBlur" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:valueFrom="0" android:valueTo="100" android:stepSize="5" android:value="50"/>
+
+            <TextView android:id="@+id/lblSat" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textColor="@color/text"/>
+            <com.google.android.material.slider.Slider android:id="@+id/slSat" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:valueFrom="0" android:valueTo="40" android:stepSize="2" android:value="12"/>
+
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="Estilo da edição" android:textColor="@color/text"/>
+            <com.google.android.material.chip.ChipGroup android:id="@+id/styles" android:layout_width="match_parent" android:layout_height="wrap_content" app:singleSelection="true" app:selectionRequired="true">
+                <com.google.android.material.chip.Chip android:id="@+id/stNatural" style="@style/Widget.Material3.Chip.Filter" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Natural" android:checked="true"/>
+                <com.google.android.material.chip.Chip android:id="@+id/stWarm" style="@style/Widget.Material3.Chip.Filter" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Quente"/>
+                <com.google.android.material.chip.Chip android:id="@+id/stCool" style="@style/Widget.Material3.Chip.Filter" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Frio"/>
+                <com.google.android.material.chip.Chip android:id="@+id/stMono" style="@style/Widget.Material3.Chip.Filter" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="P&amp;B"/>
+            </com.google.android.material.chip.ChipGroup>
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
+
+    <!-- Atividade -->
+    <TextView style="@style/Label" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="24dp" android:text="Atividade"/>
+    <TextView android:id="@+id/log" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp"
+        android:textColor="@color/muted" android:textSize="13sp" android:fontFamily="monospace" android:lineSpacingExtra="4dp"/>
+
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="24dp" android:textColor="@color/muted" android:textSize="12sp"
+        android:text="Como conectar: na câmera, Menu → Rede → Ctrl c/ Smartphone → Ligado. Depois conecte o Wi-Fi do celular na rede DIRECT-xxxx:ILCE-6400 e toque em Iniciar."/>
+</LinearLayout>
+</ScrollView>
