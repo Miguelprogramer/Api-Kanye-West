@@ -62,7 +62,12 @@ class MainActivity : AppCompatActivity(), SyncBus.Listener {
         }
 
         bindSettings()
+        androidx.core.content.ContextCompat.registerReceiver(this, usbReceiver,
+            android.content.IntentFilter(UsbCamera.ACTION_PERMISSION), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED)
+        if (intent?.action == android.hardware.usb.UsbManager.ACTION_USB_DEVICE_ATTACHED && SyncBus.state == SyncBus.State.OFF) start()
     }
+
+    override fun onDestroy() { runCatching { unregisterReceiver(usbReceiver) }; super.onDestroy() }
 
     override fun onResume() {
         super.onResume()
@@ -91,7 +96,39 @@ class MainActivity : AppCompatActivity(), SyncBus.Listener {
     }
 
     /** Fluxo de conexão passo a passo, com uma explicação pra cada coisa que faltar. */
+    private val usbManager by lazy { getSystemService(android.hardware.usb.UsbManager::class.java) }
+    private val usbReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(c: android.content.Context, i: Intent) {
+            if (i.getBooleanExtra(android.hardware.usb.UsbManager.EXTRA_PERMISSION_GRANTED, false)) start()
+            else onLog("Permissão do cabo USB negada")
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (intent.action == android.hardware.usb.UsbManager.ACTION_USB_DEVICE_ATTACHED && SyncBus.state == SyncBus.State.OFF) start()
+    }
+
     private fun start() {
+        // 0. Cabo USB tem prioridade
+        UsbCamera.find(usbManager)?.let { dev ->
+            onLog("Cabo detectado: ${UsbCamera.describe(dev)}")
+            if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED)
+                requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 2)
+            if (!usbManager.hasPermission(dev)) {
+                val pi = android.app.PendingIntent.getBroadcast(this, 0,
+                    Intent(UsbCamera.ACTION_PERMISSION).setPackage(packageName),
+                    android.app.PendingIntent.FLAG_MUTABLE)
+                usbManager.requestPermission(dev, pi)
+                return
+            }
+            startForegroundService(Intent(this, SyncService::class.java).putExtra("usb", true))
+            onState(SyncBus.State.SEARCHING, "Conectando pelo cabo…")
+            return
+        }
+        if (usbManager.deviceList.isNotEmpty()) onLog("Aparelho USB conectado, mas não é uma câmera em modo PC Remoto: " +
+            usbManager.deviceList.values.joinToString { UsbCamera.describe(it) })
+
         // 1. Permissões (pedidas ANTES de qualquer coisa)
         val missing = requiredPerms().filter { checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED }
         if (missing.isNotEmpty()) { permLauncher.launch(missing.toTypedArray()); return }

@@ -17,8 +17,10 @@ import kotlin.concurrent.thread
  * só quando ela for >= 0x8000 existe foto no handle 0xFFFFC001. Acessar esse handle
  * sem foto pendente pode travar o firmware da câmera.
  */
-class SonyCamera(socketFactory: SocketFactory, guid: UUID, host: String = "192.168.122.1", private val log: (String) -> Unit = {}) {
-    private val ptp = PtpIpClient(host = host, socketFactory = socketFactory, guid = guid)
+class SonyCamera(private val ptp: PtpTransport, private val log: (String) -> Unit = {}) {
+    /** Atalho pro modo Wi-Fi. */
+    constructor(socketFactory: SocketFactory, guid: UUID, host: String = "192.168.122.1", log: (String) -> Unit = {}) :
+        this(PtpIpClient(host = host, socketFactory = socketFactory, guid = guid), log)
     @Volatile private var running = true
     private val wake = Object()
     var protocolVersion = 0xC8; private set
@@ -44,8 +46,8 @@ class SonyCamera(socketFactory: SocketFactory, guid: UUID, host: String = "192.1
     }
 
     fun connect() {
-        log("1/4 Abrindo canal PTP/IP com a câmera…")
-        ptp.connect()
+        log("1/4 Abrindo canal com a câmera…")
+        ptp.open()
         log("2/4 Abrindo sessão…")
         ptp.operation(OP_OPEN_SESSION, 1)
         log("3/4 Autenticando com a Sony…")

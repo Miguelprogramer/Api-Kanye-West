@@ -111,6 +111,8 @@
         android:textColor="@color/muted" android:textSize="13sp" android:fontFamily="monospace" android:lineSpacingExtra="4dp"/>
 
     <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="24dp" android:textColor="@color/muted" android:textSize="12sp"
-        android:text="Como conectar: na câmera, Menu → Rede → Ctrl c/ Smartphone → Ligado. Digite em Ajustes a senha do Wi-Fi que aparece na tela da câmera, toque em Iniciar e escolha a rede DIRECT-…ILCE-6400 na janela do Android."/>
+        android:text="Pelo CABO (recomendado): na câmera, Menu → Configuração → Conexão USB → PC Remoto. Ligue a câmera no celular com cabo USB-C ↔ Micro-USB (OTG) e toque em Iniciar.
+
+Pelo Wi-Fi: Menu → Rede → Ctrl c/ Smartphone, digite a senha em Ajustes e toque em Iniciar."/>
 </LinearLayout>
 </ScrollView>

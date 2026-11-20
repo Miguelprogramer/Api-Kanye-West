@@ -29,3 +29,4 @@ A versão aparece no topo do app (ex.: "Versão 1.12 (build 12)"). Cada build do
 - **Diagnóstico** de portas e erro detalhado.
 - **Novo visual:** tema escuro, painel, prévia antes/depois, ajustes e estilos.
 - **Primeira versão:** transferência por Wi-Fi, triagem, edição e organização.
+- **Modo cabo USB (PC Remoto):** conexão pelo cabo, com prioridade sobre o Wi-Fi. O app abre sozinho quando a câmera é plugada.

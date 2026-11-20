@@ -38,6 +38,11 @@ class SyncService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForeground(1, notification("Procurando a câmera…"))
+        if (intent?.getBooleanExtra("usb", false) == true) {
+            cameraJob?.cancel(); cameraJob = scope.launch { runUsb() }
+            scope.launch { processLoop() }
+            return START_STICKY
+        }
         CameraNetwork.listener = { n ->
             cameraJob?.cancel()
             if (n != null) cameraJob = scope.launch { runCamera(n) }
@@ -50,6 +55,32 @@ class SyncService : Service() {
         }
         scope.launch { processLoop() }
         return START_STICKY
+    }
+
+    /** Modo cabo: PTP pelo USB, mesma lógica Sony do Wi-Fi. */
+    private suspend fun runUsb() {
+        val um = getSystemService(android.hardware.usb.UsbManager::class.java)
+        var fails = 0
+        while (scope.isActive) {
+            val dev = UsbCamera.find(um)
+            if (dev == null) { status("Conexão caiu. Cabo desconectado ou câmera fora do modo PC Remoto"); delay(3000); continue }
+            if (!um.hasPermission(dev)) { status("Conexão caiu. Sem permissão do USB — abra o app e toque em Iniciar"); delay(3000); continue }
+            try {
+                log("Cabo: ${UsbCamera.describe(dev)}")
+                status("Conectando na a6400 pelo cabo…")
+                val cam = SonyCamera(UsbCamera.open(um, dev)) { log(it) }.also { camera = it }
+                cam.connect()
+                fails = 0
+                status("Conectada pelo cabo! Pode fotografar.")
+                cam.listen(onPhoto = { queue.trySend(it) }, onSkipped = { log("Vídeo ignorado: $it") })
+            } catch (e: Exception) {
+                fails++
+                status("Conexão caiu. Tentando de novo…")
+                log("ERRO: ${e.javaClass.simpleName}: ${e.message}")
+                camera?.close()
+                delay(if (fails > 3) 10000 else 3000)
+            }
+        }
     }
 
     private suspend fun runCamera(network: Network) {

@@ -18,7 +18,7 @@ class PtpIpClient(
     private val port: Int = 15740,
     private val socketFactory: SocketFactory = SocketFactory.getDefault(),
     private val guid: UUID = UUID.randomUUID(),
-) {
+) : PtpTransport {
     class PtpException(msg: String) : Exception(msg)
 
     private lateinit var cmd: Socket
@@ -27,6 +27,8 @@ class PtpIpClient(
 
     data class Response(val code: Int, val params: List<Int>, val data: ByteArray)
     data class Event(val code: Int, val params: List<Int>)
+
+    override fun open() = connect()
 
     fun connect(name: String = "A6400Sync") {
         cmd = socketFactory.createSocket().apply { connect(InetSocketAddress(host, port), 5000); tcpNoDelay = true }
@@ -50,7 +52,7 @@ class PtpIpClient(
     }
 
     @Synchronized
-    fun operation(code: Int, vararg params: Int): Response {
+    override fun operation(code: Int, vararg params: Int): Response {
         val tid = ++transactionId
         val body = le(4 + 2 + 4 + params.size * 4).putInt(1).putShort(code.toShort()).putInt(tid)
         params.forEach { body.putInt(it) }
@@ -81,7 +83,7 @@ class PtpIpClient(
 
     /** Operação que ENVIA dados pra câmera (ex.: SetExtDevicePropValue). */
     @Synchronized
-    fun operationOut(code: Int, data: ByteArray, vararg params: Int): Response {
+    override fun operationOut(code: Int, data: ByteArray, vararg params: Int): Response {
         val tid = ++transactionId
         val body = le(4 + 2 + 4 + params.size * 4).putInt(2).putShort(code.toShort()).putInt(tid)
         params.forEach { body.putInt(it) }
@@ -97,7 +99,7 @@ class PtpIpClient(
     }
 
     /** Bloqueia até chegar um evento da câmera (ex.: foto nova). */
-    fun nextEvent(): Event {
+    override fun nextEvent(): Event {
         while (true) {
             val (type, payload) = readPacket(DataInputStream(evt.getInputStream()))
             if (type == 13) { writePacket(evt.getOutputStream(), 14, ByteArray(0)); continue } // Probe -> responde
@@ -109,7 +111,7 @@ class PtpIpClient(
         }
     }
 
-    fun close() { runCatching { cmd.close() }; runCatching { evt.close() } }
+    override fun close() { runCatching { cmd.close() }; runCatching { evt.close() } }
 
     private fun writePacket(out: OutputStream, type: Int, payload: ByteArray) {
         out.write(le(8 + payload.size).putInt(8 + payload.size).putInt(type).array().copyOf(8) + payload)
