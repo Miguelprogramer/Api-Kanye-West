@@ -44,7 +44,7 @@ class MainActivity : AppCompatActivity(), SyncBus.Listener {
         }
 
         v<MaterialButton>(R.id.startStop).setOnClickListener {
-            if (SyncBus.state == SyncBus.State.OFF) start() else stopService(Intent(this, SyncService::class.java))
+            if (SyncBus.state == SyncBus.State.OFF) start() else { stopService(Intent(this, SyncService::class.java)); CameraNetwork.release(this); onState(SyncBus.State.OFF, "Desconectada") }
         }
 
         // Segurar a prévia mostra o original (antes x depois)
@@ -72,12 +72,72 @@ class MainActivity : AppCompatActivity(), SyncBus.Listener {
 
     override fun onPause() { super.onPause(); if (SyncBus.listener === this) SyncBus.listener = null }
 
+    private val permLauncher = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()
+    ) { res ->
+        val needed = res.filterKeys { it != Manifest.permission.POST_NOTIFICATIONS }
+        if (needed.values.all { it }) start()
+        else dialog("Permissão necessária",
+            "Sem a permissão de Localização / Dispositivos próximos o Android não deixa o app achar o Wi-Fi da câmera.\n\nToque em Abrir, vá em Permissões e permita.",
+            "Abrir") { startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:$packageName"))) }
+    }
+
+    private fun requiredPerms() = buildList {
+        add(Manifest.permission.ACCESS_FINE_LOCATION)
+        if (Build.VERSION.SDK_INT >= 33) { add(Manifest.permission.NEARBY_WIFI_DEVICES); add(Manifest.permission.POST_NOTIFICATIONS) }
+    }
+
+    /** Fluxo de conexão passo a passo, com uma explicação pra cada coisa que faltar. */
     private fun start() {
-        val perms = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION)
-        if (Build.VERSION.SDK_INT >= 33) perms += listOf(Manifest.permission.POST_NOTIFICATIONS, Manifest.permission.NEARBY_WIFI_DEVICES)
-        requestPermissions(perms.toTypedArray(), 1)
+        // 1. Permissões (pedidas ANTES de qualquer coisa)
+        val missing = requiredPerms().filter { checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED }
+        if (missing.isNotEmpty()) { permLauncher.launch(missing.toTypedArray()); return }
+
+        // 2. Localização ligada (no Xiaomi, sem isso a busca de Wi-Fi não aparece)
+        val lm = getSystemService(android.location.LocationManager::class.java)
+        if (!lm.isLocationEnabled) {
+            dialog("Ligue a Localização", "O Android só procura a rede da câmera com a Localização (GPS) ligada.", "Ligar") {
+                startActivity(Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+            }; return
+        }
+
+        // 3. Já está no Wi-Fi da câmera? Usa direto.
+        CameraNetwork.findExisting(this)?.let { CameraNetwork.use(it); launchService(); return }
+
+        // 4. Pede a rede pelo Android (janela do sistema)
+        if (settings.wifiPassword.isBlank()) {
+            dialog("Senha do Wi-Fi da câmera", "Digite em Ajustes a senha que aparece na tela da câmera (Ctrl c/ Smartphone).\n\nOu conecte manualmente nas configurações de Wi-Fi.", "Wi-Fi manual") { openWifi() }
+            return
+        }
+        onState(SyncBus.State.SEARCHING, "Escolha a rede DIRECT-… na janela do Android")
+        try {
+            CameraNetwork.request(this, settings.wifiPassword,
+                onReady = { runOnUiThread { launchService() } },
+                onFail = { runOnUiThread { manualFallback() } })
+        } catch (e: Exception) {
+            onLog("ERRO ao pedir rede: ${e.message}"); manualFallback()
+        }
+    }
+
+    private fun launchService() {
         startForegroundService(Intent(this, SyncService::class.java))
-        onState(SyncBus.State.SEARCHING, "Procurando a câmera…")
+        onState(SyncBus.State.SEARCHING, "Conectando na câmera…")
+    }
+
+    private fun manualFallback() {
+        onState(SyncBus.State.OFF, "Desconectada")
+        dialog("Conecte pelo Wi-Fi do celular",
+            "A janela não encontrou a câmera. Faça assim:\n\n1. Toque em Abrir Wi-Fi\n2. Escolha DIRECT-…ILCE-6400 e digite a senha\n3. Se aparecer \"Sem internet\", escolha MANTER conectado\n4. Volte aqui e toque em Iniciar",
+            "Abrir Wi-Fi") { openWifi() }
+    }
+
+    private fun openWifi() = startActivity(Intent(android.provider.Settings.ACTION_WIFI_SETTINGS))
+
+    private fun dialog(title: String, msg: String, action: String, onAction: () -> Unit) {
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+            .setTitle(title).setMessage(msg)
+            .setPositiveButton(action) { _, _ -> onAction() }
+            .setNegativeButton("Cancelar", null).show()
     }
 
     private fun bindSettings() {

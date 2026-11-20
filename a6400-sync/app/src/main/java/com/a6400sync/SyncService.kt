@@ -38,29 +38,14 @@ class SyncService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForeground(1, notification("Procurando a câmera…"))
-        val cm = getSystemService(ConnectivityManager::class.java)
-        val pass = Settings(this).wifiPassword
-        // Pede ao Android a rede DIRECT-…ILCE-6400 da câmera. O resto do celular continua no Wi-Fi/4G normal.
-        val spec = android.net.wifi.WifiNetworkSpecifier.Builder()
-            .setSsidPattern(android.os.PatternMatcher("DIRECT-", android.os.PatternMatcher.PATTERN_PREFIX))
-            .apply { if (pass.isNotBlank()) setWpa2Passphrase(pass) }
-            .build()
-        val req = NetworkRequest.Builder()
-            .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
-            .removeCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-            .setNetworkSpecifier(spec)
-            .build()
-        if (pass.isBlank()) log("Aviso: senha do Wi-Fi da câmera vazia (preencha em Ajustes)")
-        status("Escolha a rede DIRECT-…ILCE-6400 na janela do Android")
-        cm.requestNetwork(req, object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) {
-                val ip = cm.getLinkProperties(network)?.linkAddresses?.joinToString { it.address.hostAddress ?: "" }
-                log("Wi-Fi da câmera conectado. IP do celular: $ip")
-                if (cameraJob?.isActive != true) cameraJob = scope.launch { runCamera(network) }
-            }
-            override fun onUnavailable() { status("Conexão caiu. Rede da câmera não encontrada — confira a senha e se o Wi-Fi da câmera está ligado") }
-            override fun onLost(network: Network) { cameraJob?.cancel(); status("Conexão caiu. Wi-Fi da câmera perdido") }
-        })
+        CameraNetwork.listener = { n ->
+            cameraJob?.cancel()
+            if (n != null) cameraJob = scope.launch { runCamera(n) }
+            else status("Conexão caiu. Wi-Fi da câmera perdido")
+        }
+        val n = CameraNetwork.network ?: CameraNetwork.findExisting(this)
+        if (n != null) { log("Usando rede da câmera. IP do celular: ${CameraNetwork.ipOf(this, n)}"); cameraJob = scope.launch { runCamera(n) } }
+        else status("Conexão caiu. Celular não está no Wi-Fi da câmera")
         scope.launch { processLoop() }
         return START_STICKY
     }
@@ -132,5 +117,5 @@ class SyncService : Service() {
             .setSmallIcon(android.R.drawable.ic_menu_camera).setOngoing(true).build()
     }
 
-    override fun onDestroy() { SyncBus.state(SyncBus.State.OFF, "Desconectada"); camera?.close(); scope.cancel(); super.onDestroy() }
+    override fun onDestroy() { CameraNetwork.listener = null; CameraNetwork.release(this); SyncBus.state(SyncBus.State.OFF, "Desconectada"); camera?.close(); scope.cancel(); super.onDestroy() }
 }
