@@ -115,7 +115,7 @@ class MainActivity : AppCompatActivity(), SyncBus.Listener {
         v<TextView>(R.id.statusText).text = label
         v<MaterialButton>(R.id.startStop).apply {
             val on = state != SyncBus.State.OFF
-            text = if (on) "Parar sincronização" else "Iniciar sincronização"
+            this.text = if (on) "Parar sincronização" else "Iniciar sincronização"
             backgroundTintList = ColorStateList.valueOf(color(if (on) R.color.surface2 else R.color.accent))
         }
     }
