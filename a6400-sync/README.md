@@ -21,6 +21,7 @@ Abra a pasta no Android Studio e rode (Android 10+).
 - `AutoEdit.saturation`: intensidade da cor.
 
 ## Versões
+- **Controle total da a6400 (PC Remoto):** painel com bateria, modo, velocidade, abertura, ISO, compensação, balanço de branco, foco, área de foco, medição, disparo, qualidade, tamanho, proporção, DRO e destino das fotos; botões Focar, Disparar e Ao vivo. Correções no download (validação da 0xD215, pausa entre fotos, ObjectInfo vazio).
 - **Só cabo USB (Wi-Fi removido):** reset do canal USB, sessão presa reaproveitada, transação 0 no OpenSession, checagem do modo PC Remoto com explicação, plano B por eventos e lista de verificação na tela.
 A versão aparece no topo do app (ex.: "Versão 1.12 (build 12)"). Cada build do GitHub gera um número novo; instale sempre o maior.
 

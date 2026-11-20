@@ -34,6 +34,23 @@ class SonyCamera(private val ptp: PtpTransport, private val log: (String) -> Uni
         const val PROP_PRIORITY_KEY = 0xD25A
         const val SHOT_HANDLE = 0xFFFFC001.toInt()
         const val RC_SESSION_ALREADY_OPEN = 0x201E
+        const val OP_CONTROL_DEVICE = 0x9207
+        const val LIVE_HANDLE = 0xFFFFC002.toInt()
+        const val BTN_S1 = 0xD2C1          // meio-clique (foco)
+        const val BTN_S2 = 0xD2C2          // disparo
+        const val PROP_FOCUS_INDICATOR = 0xD213
+        const val PROP_FOCUS_MODE = 0x500A
+
+        /** Live view: bytes 0–3 = posição do JPEG; senão procura FF D8 … FF D9. */
+        fun extractJpeg(d: ByteArray): ByteArray? {
+            if (d.size < 4) return null
+            val off = ByteBuffer.wrap(d).order(ByteOrder.LITTLE_ENDIAN).int
+            var start = if (off in 0..d.size - 2 && d[off] == 0xFF.toByte() && d[off + 1] == 0xD8.toByte()) off else -1
+            if (start < 0) start = (0 until d.size - 1).firstOrNull { d[it] == 0xFF.toByte() && d[it + 1] == 0xD8.toByte() } ?: return null
+            var end = d.size
+            for (i in d.size - 2 downTo start + 2) if (d[i] == 0xFF.toByte() && d[i + 1] == 0xD9.toByte()) { end = i + 2; break }
+            return d.copyOfRange(start, end)
+        }
 
         const val FMT_JPEG = 0x3801
         const val FMT_ARW = 0xB101
@@ -71,10 +88,22 @@ class SonyCamera(private val ptp: PtpTransport, private val log: (String) -> Uni
         }
         if (ext.size >= 2) protocolVersion = ByteBuffer.wrap(ext).order(ByteOrder.LITTLE_ENDIAN).short.toInt() and 0xFFFF
         log("Protocolo Sony: 0x%X".format(protocolVersion))
+        Thread.sleep(500)
         ptp.operation(OP_SDIO_CONNECT, 3, 0, 0)
         log("5/5 Assumindo controle…")
         runCatching { ptp.operationOut(OP_SET_EXT_DEVICE_PROP, byteArrayOf(1), PROP_PRIORITY_KEY) }
             .onFailure { log("Aviso: prioridade não definida (${it.message})") }
+    }
+
+    /** Últimas propriedades lidas da câmera (bateria, ISO, velocidade…). */
+    @Volatile var lastProps: Map<Int, SonyProps.Prop> = emptyMap(); private set
+    var onProps: ((Map<Int, SonyProps.Prop>) -> Unit)? = null
+
+    /** Lê todas as propriedades (0x9209) e avisa a tela. */
+    fun refreshProps(): Map<Int, SonyProps.Prop> {
+        val p = SonyProps.parseAll(ptp.operation(OP_GET_ALL_EXT_DEVICE_PROP_INFO).data, protocolVersion)
+        if (p.isNotEmpty()) { lastProps = p; onProps?.invoke(p) }
+        return p
     }
 
     /** Loop: entrega cada foto nova assim que ela aparece na memória da câmera. */
@@ -90,9 +119,11 @@ class SonyCamera(private val ptp: PtpTransport, private val log: (String) -> Uni
         }
         var propWarned = false
         while (running) {
-            val pending = runCatching { objectInMemory() }.getOrElse { -1 }
+            val props = runCatching { refreshProps() }.getOrElse { emptyMap() }
+            val pending = props[PROP_OBJECT_IN_MEMORY]?.value?.toInt() ?: -1
             val ready = when {
-                pending >= 0x8000 -> true
+                // 0x8000 | quantidade. Valores estranhos (ex.: 0xFFFB, visto numa a6400) são ignorados.
+                pending in 0x8001..0x80FF -> true
                 pending < 0 && eventsSeen.get() > 0 -> {           // plano B: confia no evento
                     if (!propWarned) { propWarned = true; log("Aviso: usando eventos da câmera pra detectar fotos") }
                     eventsSeen.decrementAndGet(); Thread.sleep(300); true
@@ -100,21 +131,113 @@ class SonyCamera(private val ptp: PtpTransport, private val log: (String) -> Uni
                 else -> false
             }
             if (ready) {
-                val info = ptp.operation(OP_GET_OBJECT_INFO, SHOT_HANDLE).data
-                val (format, name) = parseObjectInfo(info)
-                val bytes = ptp.operation(OP_GET_OBJECT, SHOT_HANDLE).data   // sempre baixa pra esvaziar a memória
-                val ext = name.substringAfterLast('.', "").lowercase()
-                if (format in ACCEPTED_FORMATS || ext in ACCEPTED_EXT) onPhoto(Photo(name, format, bytes)) else onSkipped(name)
+                downloadOne(onPhoto, onSkipped)
+                Thread.sleep(300)   // a 0xD215 demora ~0,2 s pra atualizar; evita pedir foto que não existe
                 continue
             }
             synchronized(wake) { wake.wait(400) }
         }
     }
 
-    fun objectInMemory(): Int {
-        val d = ptp.operation(OP_GET_ALL_EXT_DEVICE_PROP_INFO).data
-        return SonyProps.find(d, PROP_OBJECT_IN_MEMORY, protocolVersion)?.toInt() ?: -1
+    private fun downloadOne(onPhoto: (Photo) -> Unit, onSkipped: (String) -> Unit) {
+        val info = ptp.operation(OP_GET_OBJECT_INFO, SHOT_HANDLE).data
+        if (info.size < 53) { log("Aviso: câmera anunciou foto mas não mandou os dados (ignorado)"); return }
+        val (format, name) = parseObjectInfo(info)
+        val bytes = ptp.operation(OP_GET_OBJECT, SHOT_HANDLE).data   // sempre baixa pra esvaziar a memória
+        val ext = name.substringAfterLast('.', "").lowercase()
+        if (format in ACCEPTED_FORMATS || ext in ACCEPTED_EXT) onPhoto(Photo(name, format, bytes)) else onSkipped(name)
     }
+
+    fun objectInMemory(): Int = refreshProps()[PROP_OBJECT_IN_MEMORY]?.value?.toInt() ?: -1
+
+    // ───────────── Controle remoto (PC Remoto) ─────────────
+
+    private fun le16(v: Int) = ByteBuffer.allocate(2).order(ByteOrder.LITTLE_ENDIAN).putShort(v.toShort()).array()
+
+    /** Botão virtual da câmera: 0x9207, UINT16, 2 = aperta, 1 = solta. */
+    fun button(code: Int, pressed: Boolean) { ptp.operationOut(OP_CONTROL_DEVICE, le16(if (pressed) 2 else 1), code) }
+
+    /** Ajuste por passos (protocolo 0xC8: velocidade, abertura, ISO, compensação). */
+    fun step(code: Int, delta: Int) {
+        try { ptp.operationOut(OP_CONTROL_DEVICE, byteArrayOf(delta.toByte()), code) }          // libgphoto2: 1 byte
+        catch (e: PtpException) { ptp.operationOut(OP_CONTROL_DEVICE, le16(delta), code) }       // INDIGO: 2 bytes
+    }
+
+    /** Valor exato (0x9205), no tamanho do tipo da propriedade. */
+    fun setValue(code: Int, value: Long) {
+        val type = lastProps[code]?.type ?: 4
+        val size = when (type) { 1, 2 -> 1; 3, 4 -> 2; 5, 6 -> 4; else -> 8 }
+        val b = ByteBuffer.allocate(size).order(ByteOrder.LITTLE_ENDIAN)
+        when (size) { 1 -> b.put(value.toByte()); 2 -> b.putShort(value.toShort()); 4 -> b.putInt(value.toInt()); else -> b.putLong(value) }
+        ptp.operationOut(OP_SET_EXT_DEVICE_PROP, b.array(), code)
+    }
+
+    /** Espera a propriedade mudar (a câmera aplica com atraso). */
+    fun waitChange(code: Int, old: Long?, timeoutMs: Long = 3000): Long? {
+        val end = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < end) {
+            val v = runCatching { refreshProps()[code]?.value }.getOrNull()
+            if (v != old) return v
+            Thread.sleep(200)
+        }
+        return old
+    }
+
+    /** Foca (meio-clique). Retorna true se achou foco. */
+    fun autofocus(): Boolean {
+        button(BTN_S1, true)
+        val ok = waitFocus(1500)
+        button(BTN_S1, false)
+        return ok
+    }
+
+    private fun waitFocus(ms: Long): Boolean {
+        val end = System.currentTimeMillis() + ms
+        while (System.currentTimeMillis() < end) {
+            when (runCatching { refreshProps()[PROP_FOCUS_INDICATOR]?.value?.toInt() }.getOrNull()) { 2, 6 -> return true; 3 -> return false }
+            Thread.sleep(100)
+        }
+        return false
+    }
+
+    /** Disparo remoto (sequência do libgphoto2). A foto chega pelo loop normal de download. */
+    fun capture() {
+        val manual = lastProps[PROP_FOCUS_MODE]?.value == 1L
+        button(BTN_S1, true)
+        button(BTN_S2, true)
+        if (!manual) waitFocus(1000) else Thread.sleep(100)
+        button(BTN_S2, false)
+        button(BTN_S1, false)
+        synchronized(wake) { wake.notifyAll() }
+    }
+
+    /** Um quadro da visualização ao vivo (JPEG) ou null se a câmera ainda não liberou. */
+    fun liveViewJpeg(): ByteArray? {
+        try {
+            ptp.operation(OP_GET_OBJECT_INFO, LIVE_HANDLE)
+            return extractJpeg(ptp.operation(OP_GET_OBJECT, LIVE_HANDLE).data)
+        } catch (e: PtpException) {
+            if (e.code == 0x2009 || e.code == 0x200F || e.code == 0x2019) return null   // ainda não pronto / ocupado
+            throw e
+        }
+    }
+
+    @Volatile private var liveOn = false
+    fun startLive(onFrame: (ByteArray) -> Unit) {
+        if (liveOn) return
+        liveOn = true
+        thread(isDaemon = true, name = "live-view") {
+            var errors = 0
+            while (liveOn && running) {
+                val f = runCatching { liveViewJpeg() }.onFailure { errors++ }.getOrNull()
+                if (f != null) { errors = 0; onFrame(f) }
+                if (errors > 20) { log("Ao vivo parou: câmera não mandou imagem"); liveOn = false; break }
+                Thread.sleep(if (f == null) 150 else 60)
+            }
+        }
+    }
+    fun stopLive() { liveOn = false }
+    val isLive get() = liveOn
 
     fun close() { running = false; synchronized(wake) { wake.notifyAll() }; ptp.close() }
 
@@ -142,7 +265,7 @@ fun parseDeviceInfo(d: ByteArray): SonyCamera.DeviceInfo {
 /** Parser do dataset de propriedades Sony (formato do libgphoto2: ptp_unpack_Sony_DPD). */
 object SonyProps {
     data class Prop(
-        val code: Int, val type: Int, val writable: Boolean, val enabled: Boolean,
+        val code: Int, val type: Int, val getset: Int, val enabled: Int,
         val value: Long?, val text: String?,
         val options: List<Long>, val range: Triple<Long, Long, Long>?,
     )
@@ -169,13 +292,14 @@ object SonyProps {
                         val n = b.short.toInt() and 0xFFFF
                         val first = (0 until n).map { readValue(b, type) ?: 0 }
                         options = first
-                        if (version >= 0x12C) {
+                        if (b.remaining() >= 2 && (b.getShort(b.position()).toInt() and 0xFFFF) < 0x200) {
                             val m = b.short.toInt() and 0xFFFF
-                            options = (0 until m).map { readValue(b, type) ?: 0 }   // 2ª lista = valores aceitos agora
+                            val second = (0 until m).map { readValue(b, type) ?: 0 }
+                            if (second.isNotEmpty()) options = second                     // 2ª lista = valores aceitos agora
                         }
                     }
                 }
-                out[code] = Prop(code, type, getset != 0, enabled != 0, value, text, options, range)
+                out[code] = Prop(code, type, getset, enabled, value, text, options, range)
             }
         } catch (_: Exception) {}
         return out

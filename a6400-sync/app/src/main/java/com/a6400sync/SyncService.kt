@@ -61,6 +61,9 @@ class SyncService : Service() {
                 status("Conectando na câmera…")
                 val cam = SonyCamera(UsbCamera.open(um, dev)) { log(it) }.also { camera = it }
                 cam.connect()
+                cam.onProps = { SyncBus.camera(cam.model, it) }
+                SyncBus.camera = cam
+                runCatching { cam.refreshProps() }
                 SyncBus.pcRemote = true
                 fails = 0
                 status("Conectada! Pode fotografar.")
@@ -71,6 +74,7 @@ class SyncService : Service() {
                 log("ERRO: ${e.message ?: e.javaClass.simpleName}")
                 status("Erro. Tentando de novo…")
                 camera?.close(); camera = null
+                SyncBus.camera = null; SyncBus.camera(null, emptyMap())
                 delay(if (fails > 3) 8000 else 2500)
             }
         }
@@ -125,6 +129,7 @@ class SyncService : Service() {
 
     override fun onDestroy() {
         SyncBus.state(SyncBus.State.OFF, "Desconectada")
+        SyncBus.camera = null; SyncBus.camera(null, emptyMap())
         camera?.close(); scope.cancel(); super.onDestroy()
     }
 }
