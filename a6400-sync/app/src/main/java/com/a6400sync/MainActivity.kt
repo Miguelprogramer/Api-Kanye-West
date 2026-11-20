@@ -81,6 +81,14 @@ class MainActivity : AppCompatActivity(), SyncBus.Listener {
     }
 
     private fun bindSettings() {
+        findViewById<android.widget.EditText>(R.id.wifiPass).apply {
+            setText(settings.wifiPassword)
+            addTextChangedListener(object : android.text.TextWatcher {
+                override fun afterTextChanged(e: android.text.Editable?) { settings.wifiPassword = e.toString().trim() }
+                override fun beforeTextChanged(a: CharSequence?, b: Int, c: Int, d: Int) {}
+                override fun onTextChanged(a: CharSequence?, b: Int, c: Int, d: Int) {}
+            })
+        }
         v<MaterialSwitch>(R.id.swEdit).apply { isChecked = settings.autoEdit; setOnCheckedChangeListener { _, c -> settings.autoEdit = c } }
         v<MaterialSwitch>(R.id.swDiscard).apply { isChecked = settings.keepDiscarded; setOnCheckedChangeListener { _, c -> settings.keepDiscarded = c } }
         v<MaterialSwitch>(R.id.swDup).apply { isChecked = settings.filterDuplicates; setOnCheckedChangeListener { _, c -> settings.filterDuplicates = c } }

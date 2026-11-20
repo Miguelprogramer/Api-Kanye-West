@@ -30,6 +30,7 @@ class SyncService : Service() {
     private val queue = Channel<SonyCamera.Photo>(capacity = 50)
     private var camera: SonyCamera? = null
     private var diagnosed = false
+    private var cameraJob: kotlinx.coroutines.Job? = null
     private var count = 0; private var kept = 0
 
 
@@ -38,13 +39,27 @@ class SyncService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForeground(1, notification("Procurando a câmera…"))
         val cm = getSystemService(ConnectivityManager::class.java)
-        // O Wi-Fi da câmera não tem internet: pedimos a rede Wi-Fi explicitamente pra o Android não ignorá-la.
+        val pass = Settings(this).wifiPassword
+        // Pede ao Android a rede DIRECT-…ILCE-6400 da câmera. O resto do celular continua no Wi-Fi/4G normal.
+        val spec = android.net.wifi.WifiNetworkSpecifier.Builder()
+            .setSsidPattern(android.os.PatternMatcher("DIRECT-", android.os.PatternMatcher.PATTERN_PREFIX))
+            .apply { if (pass.isNotBlank()) setWpa2Passphrase(pass) }
+            .build()
         val req = NetworkRequest.Builder()
             .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
             .removeCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .setNetworkSpecifier(spec)
             .build()
+        if (pass.isBlank()) log("Aviso: senha do Wi-Fi da câmera vazia (preencha em Ajustes)")
+        status("Escolha a rede DIRECT-…ILCE-6400 na janela do Android")
         cm.requestNetwork(req, object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) { scope.launch { runCamera(network) } }
+            override fun onAvailable(network: Network) {
+                val ip = cm.getLinkProperties(network)?.linkAddresses?.joinToString { it.address.hostAddress ?: "" }
+                log("Wi-Fi da câmera conectado. IP do celular: $ip")
+                if (cameraJob?.isActive != true) cameraJob = scope.launch { runCamera(network) }
+            }
+            override fun onUnavailable() { status("Conexão caiu. Rede da câmera não encontrada — confira a senha e se o Wi-Fi da câmera está ligado") }
+            override fun onLost(network: Network) { cameraJob?.cancel(); status("Conexão caiu. Wi-Fi da câmera perdido") }
         })
         scope.launch { processLoop() }
         return START_STICKY

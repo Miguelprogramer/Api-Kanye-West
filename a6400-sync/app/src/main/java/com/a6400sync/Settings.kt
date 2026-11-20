@@ -12,6 +12,7 @@ class Settings(ctx: Context) {
     var blurStrictness: Float get() = p.getFloat("blur", 50f); set(v) = p.edit().putFloat("blur", v).apply()
     /** 0..40 = +0%..+40% de saturação */
     var saturationBoost: Float get() = p.getFloat("sat", 12f); set(v) = p.edit().putFloat("sat", v).apply()
+    var wifiPassword: String get() = p.getString("wifipass", "")!!; set(v) = p.edit().putString("wifipass", v).apply()
     var style: String get() = p.getString("style", "natural")!!; set(v) = p.edit().putString("style", v).apply()
 
     /** ID fixo do celular: a câmera reconhece o mesmo aparelho entre conexões. */

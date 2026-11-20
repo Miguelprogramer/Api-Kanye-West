@@ -73,6 +73,11 @@
     <TextView style="@style/Label" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="28dp" android:text="Ajustes"/>
     <com.google.android.material.card.MaterialCardView style="@style/Card" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp">
         <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">
+            <com.google.android.material.textfield.TextInputLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:hint="Senha do Wi-Fi da câmera" app:endIconMode="password_toggle" android:layout_marginBottom="8dp">
+                <com.google.android.material.textfield.TextInputEditText android:id="@+id/wifiPass" android:layout_width="match_parent"
+                    android:layout_height="wrap_content" android:inputType="textPassword" android:textColor="@color/text"/>
+            </com.google.android.material.textfield.TextInputLayout>
             <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/swEdit" android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:text="Editar automaticamente" android:textColor="@color/text" android:checked="true"/>
             <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/swDiscard" android:layout_width="match_parent" android:layout_height="wrap_content"
@@ -104,6 +109,6 @@
         android:textColor="@color/muted" android:textSize="13sp" android:fontFamily="monospace" android:lineSpacingExtra="4dp"/>
 
     <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="24dp" android:textColor="@color/muted" android:textSize="12sp"
-        android:text="Como conectar: na câmera, Menu → Rede → Ctrl c/ Smartphone → Ligado. Depois conecte o Wi-Fi do celular na rede DIRECT-xxxx:ILCE-6400 e toque em Iniciar."/>
+        android:text="Como conectar: na câmera, Menu → Rede → Ctrl c/ Smartphone → Ligado. Digite em Ajustes a senha do Wi-Fi que aparece na tela da câmera, toque em Iniciar e escolha a rede DIRECT-…ILCE-6400 na janela do Android."/>
 </LinearLayout>
 </ScrollView>
