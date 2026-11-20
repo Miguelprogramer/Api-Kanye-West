@@ -15,6 +15,9 @@ import java.util.UUID
 import javax.net.SocketFactory
 import kotlin.concurrent.thread
 
+private fun ByteBuffer.s(v: Int): ByteBuffer = putShort(v.toShort())
+private fun ByteBuffer.s(v: Short): ByteBuffer = putShort(v)
+
 /**
  * Câmera a6400 simulada (PTP/IP + extensões Sony), usada pra testar o app inteiro sem a câmera.
  * Regras imitadas do firmware real (libgphoto2):
@@ -41,12 +44,12 @@ class FakeA6400(private val shots: List<Pair<String, Int>>, private val failInit
         val b = le(512)
         b.putInt(3).putInt(0)
         // 0x5007 F-number UINT16, enum com 2 valores (formato v2)
-        b.putShort(0x5007).putShort(4).put(1).put(1).putShort(0).putShort(280).put(2).putShort(2).putShort(280).putShort(400)
+        b.s(0x5007).s(4).put(1).put(1).s(0).s(280).put(2).s(2).s(280).s(400)
         // 0xD20D string (nome) — testa tipo string
-        b.putShort(0xD20D.toShort()).putShort(0xFFFF.toShort()).put(0).put(1).put(0)
+        b.s(0xD20D.toShort()).s(0xFFFF.toShort()).put(0).put(1).put(0)
         val s = "a6400\u0000".toByteArray(Charsets.UTF_16LE); b.put(6).put(s).put(0)
         // 0xD215 ObjectInMemory UINT16, range
-        b.putShort(0xD215.toShort()).putShort(4).put(0).put(1).putShort(0).putShort(pending.toShort()).put(1).putShort(0).putShort(0xFFFF.toShort()).putShort(1)
+        b.s(0xD215.toShort()).s(4).put(0).put(1).s(0).s(pending.toShort()).put(1).s(0).s(0xFFFF.toShort()).s(1)
         return b.array().copyOf(b.position())
     }
 
@@ -55,7 +58,7 @@ class FakeA6400(private val shots: List<Pair<String, Int>>, private val failInit
         val (t, initReq) = read(ci); check(t == 1)
         check(ByteBuffer.wrap(initReq, initReq.size - 4, 4).order(ByteOrder.LITTLE_ENDIAN).int == 0x00010000)
         if (failInit != null) { send(co, 5, le(4).putInt(failInit).array()); return@thread }
-        send(co, 2, le(4 + 16 + 4 + 4).putInt(7).put(ByteArray(16)).putShort(0).putShort(0).putInt(0x00010000).array())
+        send(co, 2, le(4 + 16 + 4 + 4).putInt(7).put(ByteArray(16)).s(0).s(0).putInt(0x00010000).array())
         val evt = server.accept(); val ei = DataInputStream(evt.getInputStream()); val eo = evt.getOutputStream()
         val (et, ep) = read(ei); check(et == 3 && ByteBuffer.wrap(ep).order(ByteOrder.LITTLE_ENDIAN).int == 7)
         send(eo, 4, ByteArray(0))
@@ -76,23 +79,23 @@ class FakeA6400(private val shots: List<Pair<String, Int>>, private val failInit
             var rc = 0x2001
             when (code) {
                 0x9201 -> data(ByteArray(0))
-                0x9202 -> if (params.firstOrNull() == 0x12C) data(le(6).putShort(0xC8).putShort(0x1008).putShort(0x9209).array()) else data(ByteArray(2))
+                0x9202 -> if (params.firstOrNull() == 0x12C) data(le(6).s(0xC8).s(0x1008).s(0x9209).array()) else data(ByteArray(2))
                 0x9209 -> data(props())
                 0x1008, 0x1009 -> {
                     if (queue.isEmpty()) { crashed = true; rc = 0x2009 }
                     else if (code == 0x1008) {
                         val (name, fmt) = queue.peek()
                         val n = (name + "\u0000").toByteArray(Charsets.UTF_16LE)
-                        data(le(52).putInt(0x10001).putShort(fmt.toShort()).array() + byteArrayOf((name.length + 1).toByte()) + n + ByteArray(8))
+                        data(le(52).putInt(0x10001).s(fmt.toShort()).array() + byteArrayOf((name.length + 1).toByte()) + n + ByteArray(8))
                     } else { queue.poll(); data(payload) }
                 }
             }
-            send(co, 7, le(6).putShort(rc.toShort()).putInt(tid).array())
+            send(co, 7, le(6).s(rc.toShort()).putInt(tid).array())
             if (code == 0x9205) thread(isDaemon = true) {
                 send(eo, 13, ByteArray(0))
                 for (f in shots) {
                     Thread.sleep(200); queue.add(f)
-                    send(eo, 8, le(10).putShort(0xC201.toShort()).putInt(0).putInt(0xFFFFC001.toInt()).array())
+                    send(eo, 8, le(10).s(0xC201.toShort()).putInt(0).putInt(0xFFFFC001.toInt()).array())
                 }
             }
         }
@@ -137,7 +140,7 @@ class FakeCameraTest {
 
     @Test fun parserDePropriedades_semFotoRetornaZero() {
         val b = ByteBuffer.allocate(64).order(ByteOrder.LITTLE_ENDIAN)
-        b.putInt(1).putInt(0).putShort(0xD215.toShort()).putShort(4).put(0).put(1).putShort(0).putShort(0).put(0)
+        b.putInt(1).putInt(0).s(0xD215.toShort()).s(4).put(0).put(1).s(0).s(0).put(0)
         assertEquals(0L, SonyProps.find(b.array(), 0xD215, 0xC8))
     }
 }
