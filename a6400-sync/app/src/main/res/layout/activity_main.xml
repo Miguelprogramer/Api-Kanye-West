@@ -23,6 +23,35 @@
             android:textColor="@color/text" android:textSize="14sp" android:lineSpacingExtra="6dp"/>
     </com.google.android.material.card.MaterialCardView>
 
+    <!-- Painel da câmera (PC Remoto) -->
+    <TextView style="@style/Label" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="24dp" android:text="Câmera"/>
+    <com.google.android.material.card.MaterialCardView style="@style/Card" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp">
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+                <TextView android:id="@+id/camModel" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
+                    android:text="Câmera desconectada" android:textColor="@color/text" android:textSize="16sp" android:fontFamily="sans-serif-medium"/>
+                <TextView android:id="@+id/camBattery" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:textColor="@color/muted" android:textSize="14sp"/>
+            </LinearLayout>
+            <TextView android:id="@+id/camMode" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp"
+                android:textColor="@color/muted" android:textSize="13sp"/>
+            <!-- Grade de ajustes: toque pra mudar -->
+            <GridLayout android:id="@+id/camGrid" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="12dp" android:columnCount="3" android:useDefaultMargins="false"/>
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:layout_marginTop="12dp">
+                <com.google.android.material.button.MaterialButton android:id="@+id/btnAf" style="@style/Widget.Material3.Button.TonalButton"
+                    android:layout_width="0dp" android:layout_weight="1" android:layout_height="56dp" android:layout_marginEnd="6dp"
+                    android:text="Focar" app:cornerRadius="16dp" android:enabled="false"/>
+                <com.google.android.material.button.MaterialButton android:id="@+id/btnShoot"
+                    android:layout_width="0dp" android:layout_weight="2" android:layout_height="56dp" android:layout_marginHorizontal="6dp"
+                    android:text="Disparar" app:cornerRadius="16dp" app:icon="@android:drawable/ic_menu_camera" android:enabled="false"/>
+                <com.google.android.material.button.MaterialButton android:id="@+id/btnLive" style="@style/Widget.Material3.Button.TonalButton"
+                    android:layout_width="0dp" android:layout_weight="1" android:layout_height="56dp" android:layout_marginStart="6dp"
+                    android:text="Ao vivo" app:cornerRadius="16dp" android:enabled="false"/>
+            </LinearLayout>
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
+
     <!-- Estatísticas -->
     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
         android:orientation="horizontal" android:layout_marginTop="20dp">

@@ -141,37 +141,67 @@ fun parseDeviceInfo(d: ByteArray): SonyCamera.DeviceInfo {
 
 /** Parser do dataset de propriedades Sony (formato do libgphoto2: ptp_unpack_Sony_DPD). */
 object SonyProps {
-    fun find(d: ByteArray, wanted: Int, version: Int): Long? {
+    data class Prop(
+        val code: Int, val type: Int, val writable: Boolean, val enabled: Boolean,
+        val value: Long?, val text: String?,
+        val options: List<Long>, val range: Triple<Long, Long, Long>?,
+    )
+
+    /** Lê TODAS as propriedades. Para no primeiro erro e devolve o que conseguiu. */
+    fun parseAll(d: ByteArray, version: Int): Map<Int, Prop> {
+        val out = LinkedHashMap<Int, Prop>()
         val b = ByteBuffer.wrap(d).order(ByteOrder.LITTLE_ENDIAN)
-        if (d.size < 8) return null
+        if (d.size < 8) return out
         val count = b.int; b.int
-        repeat(count) {
-            if (b.remaining() < 6) return null
-            val code = b.short.toInt() and 0xFFFF
-            val type = b.short.toInt() and 0xFFFF
-            b.get(); b.get()
-            skipValue(b, type)
-            val current = readValue(b, type)
-            if (code == wanted) return current
-            when (b.get().toInt()) {
-                1 -> repeat(3) { skipValue(b, type) }
-                2 -> {
-                    repeat(b.short.toInt() and 0xFFFF) { skipValue(b, type) }
-                    if (version >= 0x12C) repeat(b.short.toInt() and 0xFFFF) { skipValue(b, type) }
+        try {
+            repeat(count) {
+                if (b.remaining() < 6) return out
+                val code = b.short.toInt() and 0xFFFF
+                val type = b.short.toInt() and 0xFFFF
+                val getset = b.get().toInt(); val enabled = b.get().toInt()
+                skipValue(b, type)
+                var text: String? = null
+                val value = if (type == 0xFFFF) { text = readString(b); null } else readValue(b, type)
+                var options = emptyList<Long>(); var range: Triple<Long, Long, Long>? = null
+                when (b.get().toInt()) {
+                    1 -> range = Triple(readValue(b, type) ?: 0, readValue(b, type) ?: 0, readValue(b, type) ?: 0)
+                    2 -> {
+                        val n = b.short.toInt() and 0xFFFF
+                        val first = (0 until n).map { readValue(b, type) ?: 0 }
+                        options = first
+                        if (version >= 0x12C) {
+                            val m = b.short.toInt() and 0xFFFF
+                            options = (0 until m).map { readValue(b, type) ?: 0 }   // 2ª lista = valores aceitos agora
+                        }
+                    }
                 }
+                out[code] = Prop(code, type, getset != 0, enabled != 0, value, text, options, range)
             }
-        }
-        return null
+        } catch (_: Exception) {}
+        return out
     }
+
+    fun find(d: ByteArray, wanted: Int, version: Int): Long? = parseAll(d, version)[wanted]?.value
 
     private fun size(type: Int) = when (type) { 1, 2 -> 1; 3, 4 -> 2; 5, 6 -> 4; 7, 8 -> 8; 9, 10 -> 16; else -> -1 }
 
-    private fun readValue(b: ByteBuffer, type: Int): Long? = when (size(type)) {
-        1 -> (b.get().toLong() and 0xFF)
-        2 -> (b.short.toLong() and 0xFFFF)
-        4 -> (b.int.toLong() and 0xFFFFFFFFL)
-        8 -> b.long
+    /** Valores com sinal (INT8/16/32) viram negativos corretamente. */
+    private fun readValue(b: ByteBuffer, type: Int): Long? = when (type) {
+        1 -> b.get().toLong()
+        2 -> (b.get().toLong() and 0xFF)
+        3 -> b.short.toLong()
+        4 -> (b.short.toLong() and 0xFFFF)
+        5 -> b.int.toLong()
+        6 -> (b.int.toLong() and 0xFFFFFFFFL)
+        7, 8 -> b.long
         else -> { skipValue(b, type); null }
+    }
+
+    private fun readString(b: ByteBuffer): String {
+        val n = b.get().toInt() and 0xFF
+        if (n == 0) return ""
+        val bytes = ByteArray(n * 2).also { b.get(it) }
+        return String(bytes, Charsets.UTF_16LE).trimEnd('\u0000')
     }
 
     private fun skipValue(b: ByteBuffer, type: Int) {

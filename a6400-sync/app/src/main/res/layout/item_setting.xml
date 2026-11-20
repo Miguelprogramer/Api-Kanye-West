@@ -1,0 +1,9 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="0dp" android:layout_height="wrap_content" android:layout_columnWeight="1"
+    android:orientation="vertical" android:padding="8dp" android:layout_margin="3dp"
+    android:background="@drawable/setting_bg" android:clickable="true" android:focusable="true">
+    <TextView android:id="@+id/label" android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:textColor="@color/muted" android:textSize="11sp" android:textAllCaps="true" android:letterSpacing="0.06"/>
+    <TextView android:id="@+id/value" android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:textColor="@color/text" android:textSize="17sp" android:fontFamily="sans-serif-medium" android:text="—"/>
+</LinearLayout>

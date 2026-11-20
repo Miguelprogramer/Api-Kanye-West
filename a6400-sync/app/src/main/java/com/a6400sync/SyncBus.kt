@@ -13,6 +13,8 @@ object SyncBus {
         fun onState(state: State, text: String)
         fun onLog(text: String)
         fun onPhoto(e: PhotoEvent, total: Int, kept: Int)
+        fun onCamera(model: String?, props: Map<Int, SonyProps.Prop>) {}
+        fun onLiveFrame(frame: Bitmap) {}
     }
 
     private val main = Handler(Looper.getMainLooper())
@@ -23,6 +25,17 @@ object SyncBus {
     /** null = ainda não sabe; true = câmera aceitou PC Remoto; false = modo errado */
     @Volatile var pcRemote: Boolean? = null
     val recent = ArrayDeque<PhotoEvent>()
+
+    /** Câmera conectada agora (pra disparo, ajustes e ao vivo). null = desconectada. */
+    @Volatile var camera: SonyCamera? = null
+    @Volatile var props: Map<Int, SonyProps.Prop> = emptyMap(); private set
+    @Volatile var model: String? = null; private set
+
+    fun camera(model: String?, props: Map<Int, SonyProps.Prop>) {
+        this.model = model; this.props = props
+        main.post { listener?.onCamera(model, props) }
+    }
+    fun liveFrame(b: Bitmap) = main.post { listener?.onLiveFrame(b) }
 
     fun state(s: State, text: String) { state = s; stateText = text; main.post { listener?.onState(s, text) } }
     fun log(text: String) = main.post { listener?.onLog(text) }
