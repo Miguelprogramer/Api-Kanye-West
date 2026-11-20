@@ -72,7 +72,7 @@ class SyncService : Service() {
                 if (!scope.isActive) break
                 status("Importando ${done + 1}/${todo.size}: ${p.name}")
                 try {
-                    val bytes = contentResolver.openInputStream(p.uri)?.use { it.readBytes() } ?: throw IllegalStateException("não abriu")
+                    val bytes = contentResolver.openInputStream(p.uri!!)?.use { it.readBytes() } ?: throw IllegalStateException("não abriu")
                     val fmt = if (p.name.endsWith(".ARW", true)) SonyCamera.FMT_ARW else SonyCamera.FMT_JPEG
                     processPhoto(SonyCamera.Photo(p.name, fmt, bytes), p.modified, org, settings)
                     store.add(CardImporter.key(p.docId, p.size, p.modified))

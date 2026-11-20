@@ -1,6 +1,5 @@
 package com.a6400sync
 
-import android.net.Uri
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -17,7 +16,7 @@ class CardImporterTest {
     }
 
     @Test fun ordem_maisAntigasPrimeiro() {
-        fun p(n: String, t: Long) = CardImporter.CardPhoto("U:DCIM/100MSDCF/$n", Uri.EMPTY, n, 10, t)
+        fun p(n: String, t: Long) = CardImporter.CardPhoto("U:DCIM/100MSDCF/$n", null, n, 10, t)
         val o = CardImporter.order(listOf(p("DSC3.JPG", 300), p("DSC1.JPG", 100), p("DSC2.ARW", 200), p("DSC2.JPG", 200)))
         assertEquals(listOf("DSC1.JPG", "DSC2.ARW", "DSC2.JPG", "DSC3.JPG"), o.map { it.name })
     }

@@ -17,7 +17,7 @@ import java.util.Calendar
 object CardImporter {
     private const val AUTHORITY = "com.android.externalstorage.documents"
 
-    data class CardPhoto(val docId: String, val uri: Uri, val name: String, val size: Long, val modified: Long)
+    data class CardPhoto(val docId: String, val uri: Uri?, val name: String, val size: Long, val modified: Long)
 
     // ───── Regras puras (testadas no JVM) ─────
 
