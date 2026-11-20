@@ -13,7 +13,10 @@ jobs:
         with: { distribution: temurin, java-version: "17" }
       - uses: gradle/actions/setup-gradle@v4
         with: { gradle-version: "8.7" }
-      - run: gradle testDebugUnitTest assembleDebug --no-daemon --info 2>&1 | grep -E "LOG:|OPS:|ERRO:|Test|FAIL|BUILD|e: " ; exit ${PIPESTATUS[0]}
+      - name: Testes com câmera simulada + build do APK
         shell: bash
+        run: |
+          set -o pipefail
+          gradle testDebugUnitTest assembleDebug --no-daemon --info 2>&1 | grep -E "LOG:|OPS:|ERRO:|Test|FAIL|BUILD|^e: "
       - uses: actions/upload-artifact@v4
         with: { name: A6400Sync-apk, path: a6400-sync/app/build/outputs/apk/debug/app-debug.apk }
