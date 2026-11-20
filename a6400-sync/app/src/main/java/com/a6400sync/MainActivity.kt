@@ -2,8 +2,14 @@ package com.a6400sync
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.PendingIntent
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.content.res.ColorStateList
+import android.hardware.usb.UsbManager
 import android.os.Build
 import android.os.Bundle
 import android.view.LayoutInflater
@@ -28,29 +34,43 @@ class MainActivity : AppCompatActivity(), SyncBus.Listener {
     private val adapter = ThumbAdapter { show(it) }
     private var current: SyncBus.PhotoEvent? = null
     private val logLines = ArrayDeque<String>()
+    private val usbManager by lazy { getSystemService(UsbManager::class.java) }
 
     private fun color(id: Int) = ContextCompat.getColor(this, id)
     private fun <T : View> v(id: Int): T = findViewById(id)
+
+    /** Permissão do USB, cabo plugado e cabo solto. */
+    private val usbReceiver = object : BroadcastReceiver() {
+        override fun onReceive(c: Context, i: Intent) {
+            when (i.action) {
+                UsbCamera.ACTION_PERMISSION ->
+                    if (i.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) start()
+                    else onLog("Permissão do cabo USB negada. Toque em Iniciar e aceite.")
+                UsbManager.ACTION_USB_DEVICE_ATTACHED -> { onLog("Cabo plugado"); if (SyncBus.state == SyncBus.State.OFF) start() }
+                UsbManager.ACTION_USB_DEVICE_DETACHED -> onLog("Cabo desplugado")
+            }
+            refreshChecklist()
+        }
+    }
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        settings = Settings(this)
+
         val pi = packageManager.getPackageInfo(packageName, 0)
         @Suppress("DEPRECATION")
-        v<TextView>(R.id.version).text = "Versão ${pi.versionName} (build ${pi.versionCode})"
-        settings = Settings(this)
+        v<TextView>(R.id.version).text = "Versão ${pi.versionName} (build ${pi.versionCode}) · modo cabo USB"
 
         v<RecyclerView>(R.id.recent).apply {
             layoutManager = LinearLayoutManager(this@MainActivity, LinearLayoutManager.HORIZONTAL, false)
             adapter = this@MainActivity.adapter
         }
-
         v<MaterialButton>(R.id.startStop).setOnClickListener {
-            if (SyncBus.state == SyncBus.State.OFF) start() else { stopService(Intent(this, SyncService::class.java)); CameraNetwork.release(this); onState(SyncBus.State.OFF, "Desconectada") }
+            if (SyncBus.state == SyncBus.State.OFF) start()
+            else { stopService(Intent(this, SyncService::class.java)); onState(SyncBus.State.OFF, "Desconectada") }
         }
-
-        // Segurar a prévia mostra o original (antes x depois)
         v<ImageView>(R.id.preview).setOnTouchListener { iv, ev ->
             val e = current ?: return@setOnTouchListener false
             val o = e.original ?: return@setOnTouchListener false
@@ -60,11 +80,20 @@ class MainActivity : AppCompatActivity(), SyncBus.Listener {
             }
             true
         }
-
         bindSettings()
-        androidx.core.content.ContextCompat.registerReceiver(this, usbReceiver,
-            android.content.IntentFilter(UsbCamera.ACTION_PERMISSION), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED)
-        if (intent?.action == android.hardware.usb.UsbManager.ACTION_USB_DEVICE_ATTACHED && SyncBus.state == SyncBus.State.OFF) start()
+
+        ContextCompat.registerReceiver(this, usbReceiver, IntentFilter().apply {
+            addAction(UsbCamera.ACTION_PERMISSION)
+            addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
+            addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
+        }, ContextCompat.RECEIVER_NOT_EXPORTED)
+
+        if (intent?.action == UsbManager.ACTION_USB_DEVICE_ATTACHED && SyncBus.state == SyncBus.State.OFF) start()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (intent.action == UsbManager.ACTION_USB_DEVICE_ATTACHED && SyncBus.state == SyncBus.State.OFF) start()
     }
 
     override fun onDestroy() { runCatching { unregisterReceiver(usbReceiver) }; super.onDestroy() }
@@ -76,136 +105,59 @@ class MainActivity : AppCompatActivity(), SyncBus.Listener {
         adapter.submit(SyncBus.recent.toList())
         updateStats(SyncBus.total, SyncBus.kept)
         SyncBus.recent.firstOrNull()?.let { show(it) }
+        refreshChecklist()
     }
 
     override fun onPause() { super.onPause(); if (SyncBus.listener === this) SyncBus.listener = null }
 
-    private val permLauncher = registerForActivityResult(
-        androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()
-    ) { res ->
-        val needed = res.filterKeys { it != Manifest.permission.POST_NOTIFICATIONS }
-        if (needed.values.all { it }) start()
-        else dialog("Permissão necessária",
-            "Sem a permissão de Localização / Dispositivos próximos o Android não deixa o app achar o Wi-Fi da câmera.\n\nToque em Abrir, vá em Permissões e permita.",
-            "Abrir") { startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:$packageName"))) }
-    }
-
-    private fun requiredPerms() = buildList {
-        add(Manifest.permission.ACCESS_FINE_LOCATION)
-        if (Build.VERSION.SDK_INT >= 33) { add(Manifest.permission.NEARBY_WIFI_DEVICES); add(Manifest.permission.POST_NOTIFICATIONS) }
-    }
-
-    /** Fluxo de conexão passo a passo, com uma explicação pra cada coisa que faltar. */
-    private val usbManager by lazy { getSystemService(android.hardware.usb.UsbManager::class.java) }
-    private val usbReceiver = object : android.content.BroadcastReceiver() {
-        override fun onReceive(c: android.content.Context, i: Intent) {
-            if (i.getBooleanExtra(android.hardware.usb.UsbManager.EXTRA_PERMISSION_GRANTED, false)) start()
-            else onLog("Permissão do cabo USB negada")
-        }
-    }
-
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        if (intent.action == android.hardware.usb.UsbManager.ACTION_USB_DEVICE_ATTACHED && SyncBus.state == SyncBus.State.OFF) start()
-    }
-
     private fun start() {
-        // 0. Cabo USB tem prioridade
-        UsbCamera.find(usbManager)?.let { dev ->
-            onLog("Cabo detectado: ${UsbCamera.describe(dev)}")
-            if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED)
-                requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 2)
-            if (!usbManager.hasPermission(dev)) {
-                val pi = android.app.PendingIntent.getBroadcast(this, 0,
-                    Intent(UsbCamera.ACTION_PERMISSION).setPackage(packageName),
-                    android.app.PendingIntent.FLAG_MUTABLE)
-                usbManager.requestPermission(dev, pi)
-                return
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 2)
+
+        val dev = UsbCamera.find(usbManager)
+        if (dev == null) {
+            refreshChecklist()
+            val msg = when {
+                UsbCamera.sonyWithoutPtp(usbManager) != null -> "A câmera está plugada no modo Armazenamento em Massa.\n\n${SonyCamera.PC_REMOTE_HELP}"
+                usbManager.deviceList.isEmpty() -> "O celular não está vendo nada no cabo.\n\n• Use cabo USB-C ↔ Micro-USB com OTG (alguns cabos só carregam)\n• No Xiaomi: Configurações → Configurações adicionais → ative OTG (se existir)\n• Câmera ligada e no modo PC Remoto\n\n${SonyCamera.PC_REMOTE_HELP}"
+                else -> "Aparelho USB detectado, mas não como câmera: ${usbManager.deviceList.values.joinToString { UsbCamera.describe(it) }}\n\n${SonyCamera.PC_REMOTE_HELP}"
             }
-            startForegroundService(Intent(this, SyncService::class.java).putExtra("usb", true))
-            onState(SyncBus.State.SEARCHING, "Conectando pelo cabo…")
+            dialog("Câmera não encontrada no cabo", msg)
             return
         }
-        if (usbManager.deviceList.isNotEmpty()) onLog("Aparelho USB conectado, mas não é uma câmera em modo PC Remoto: " +
-            usbManager.deviceList.values.joinToString { UsbCamera.describe(it) })
-
-        // 1. Permissões (pedidas ANTES de qualquer coisa)
-        val missing = requiredPerms().filter { checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED }
-        if (missing.isNotEmpty()) { permLauncher.launch(missing.toTypedArray()); return }
-
-        // 2. Localização ligada (no Xiaomi, sem isso a busca de Wi-Fi não aparece)
-        val lm = getSystemService(android.location.LocationManager::class.java)
-        if (!lm.isLocationEnabled) {
-            dialog("Ligue a Localização", "O Android só procura a rede da câmera com a Localização (GPS) ligada.", "Ligar") {
-                startActivity(Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS))
-            }; return
-        }
-
-        // 3. Já está no Wi-Fi da câmera? Testa de verdade (em segundo plano) e usa direto.
-        onState(SyncBus.State.SEARCHING, "Procurando a câmera no Wi-Fi…")
-        Thread {
-            val n = CameraNetwork.findExisting(this) { msg -> runOnUiThread { onLog(msg) } }
-            runOnUiThread {
-                if (n != null) { awaitingManual = false; CameraNetwork.use(n); launchService() }
-                else if (awaitingManual) { awaitingManual = false; onState(SyncBus.State.OFF, "Desconectada"); notFoundHelp() }
-                else requestViaSystem()
-            }
-        }.start()
-    }
-
-    /** Volta das Configurações de Wi-Fi → tenta sozinho, sem precisar tocar em nada. */
-    private var awaitingManual = false
-    override fun onRestart() { super.onRestart(); if (awaitingManual) start() }
-
-    private fun notFoundHelp() = dialog("Câmera não respondeu",
-        "O celular está no Wi-Fi, mas a câmera não respondeu. Veja a lista em Atividade (IP e gateway) e confira:\n\n• Na câmera está em Ctrl c/ Smartphone (tela de espera de conexão)\n• No Wi-Fi do celular, a rede conectada é a DIRECT-…ILCE-6400\n• Se o Xiaomi perguntou sobre \"sem internet\", escolheu manter conectado",
-        "Abrir Wi-Fi") { openWifi() }
-
-    private fun requestViaSystem() {
-        if (settings.wifiPassword.isBlank()) {
-            dialog("Senha do Wi-Fi da câmera", "Digite em Ajustes a senha que aparece na tela da câmera (Ctrl c/ Smartphone).\n\nOu conecte manualmente nas configurações de Wi-Fi.", "Wi-Fi manual") { openWifi() }
+        onLog("Cabo detectado: ${UsbCamera.describe(dev)}")
+        if (!usbManager.hasPermission(dev)) {
+            val pi = PendingIntent.getBroadcast(this, 0, Intent(UsbCamera.ACTION_PERMISSION).setPackage(packageName),
+                PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+            usbManager.requestPermission(dev, pi)
+            onLog("Aceite a permissão do USB na janela")
             return
         }
-        onState(SyncBus.State.SEARCHING, "Escolha a rede DIRECT-… na janela do Android")
-        try {
-            CameraNetwork.request(this, settings.wifiPassword,
-                onReady = { runOnUiThread { launchService() } },
-                onFail = { runOnUiThread { manualFallback() } })
-        } catch (e: Exception) {
-            onLog("ERRO ao pedir rede: ${e.message}"); manualFallback()
-        }
-    }
-
-    private fun launchService() {
         startForegroundService(Intent(this, SyncService::class.java))
-        onState(SyncBus.State.SEARCHING, "Conectando na câmera…")
+        onState(SyncBus.State.SEARCHING, "Conectando pelo cabo…")
+        refreshChecklist()
     }
 
-    private fun manualFallback() {
-        onState(SyncBus.State.OFF, "Desconectada")
-        dialog("Conecte pelo Wi-Fi do celular",
-            "A janela não encontrou a câmera. Faça assim:\n\n1. Toque em Abrir Wi-Fi\n2. Escolha DIRECT-…ILCE-6400 e digite a senha\n3. Se aparecer \"Sem internet\", escolha MANTER conectado\n4. Volte aqui e toque em Iniciar",
-            "Abrir Wi-Fi") { openWifi() }
+    /** Lista do que falta, sempre visível. */
+    private fun refreshChecklist() {
+        val dev = UsbCamera.find(usbManager)
+        val sonyNoPtp = UsbCamera.sonyWithoutPtp(usbManager) != null
+        fun line(ok: Boolean?, text: String) = (when (ok) { true -> "✅"; false -> "❌"; null -> "⏳" }) + "  " + text
+        val lines = listOf(
+            line(dev != null || sonyNoPtp, if (dev != null || sonyNoPtp) "Câmera no cabo" else "Câmera no cabo — nada detectado (cabo OTG / OTG do celular)"),
+            line(if (sonyNoPtp) false else if (dev != null && SyncBus.pcRemote != false) true else SyncBus.pcRemote, if (sonyNoPtp || SyncBus.pcRemote == false) "Modo PC Remoto — mude na câmera: Conexão USB → PC Remoto" else "Modo PC Remoto"),
+            line(dev?.let { usbManager.hasPermission(it) }, "Permissão do USB"),
+            line(SyncBus.state == SyncBus.State.CONNECTED, "Conectada e pronta pra fotografar"),
+        )
+        v<TextView>(R.id.checklist).text = lines.joinToString("\n")
     }
 
-    private fun openWifi() { awaitingManual = true; startActivity(Intent(android.provider.Settings.ACTION_WIFI_SETTINGS)) }
-
-    private fun dialog(title: String, msg: String, action: String, onAction: () -> Unit) {
+    private fun dialog(title: String, msg: String) {
         com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
-            .setTitle(title).setMessage(msg)
-            .setPositiveButton(action) { _, _ -> onAction() }
-            .setNegativeButton("Cancelar", null).show()
+            .setTitle(title).setMessage(msg).setPositiveButton("OK", null).show()
     }
 
     private fun bindSettings() {
-        findViewById<android.widget.EditText>(R.id.wifiPass).apply {
-            setText(settings.wifiPassword)
-            addTextChangedListener(object : android.text.TextWatcher {
-                override fun afterTextChanged(e: android.text.Editable?) { settings.wifiPassword = e.toString().trim() }
-                override fun beforeTextChanged(a: CharSequence?, b: Int, c: Int, d: Int) {}
-                override fun onTextChanged(a: CharSequence?, b: Int, c: Int, d: Int) {}
-            })
-        }
         v<MaterialSwitch>(R.id.swEdit).apply { isChecked = settings.autoEdit; setOnCheckedChangeListener { _, c -> settings.autoEdit = c } }
         v<MaterialSwitch>(R.id.swDiscard).apply { isChecked = settings.keepDiscarded; setOnCheckedChangeListener { _, c -> settings.keepDiscarded = c } }
         v<MaterialSwitch>(R.id.swDup).apply { isChecked = settings.filterDuplicates; setOnCheckedChangeListener { _, c -> settings.filterDuplicates = c } }
@@ -233,20 +185,22 @@ class MainActivity : AppCompatActivity(), SyncBus.Listener {
         val (c, label) = when (state) {
             SyncBus.State.OFF -> R.color.muted to "Desconectada"
             SyncBus.State.SEARCHING -> R.color.warn to text
-            SyncBus.State.CONNECTED -> R.color.ok to "Conectada · pode fotografar"
-            SyncBus.State.ERROR -> R.color.bad to "Reconectando…"
+            SyncBus.State.CONNECTED -> R.color.ok to "Conectada pelo cabo · pode fotografar"
+            SyncBus.State.ERROR -> R.color.bad to text
         }
         v<View>(R.id.statusDot).backgroundTintList = ColorStateList.valueOf(color(c))
         v<TextView>(R.id.statusText).text = label
         v<MaterialButton>(R.id.startStop).apply {
             val on = state != SyncBus.State.OFF
-            this.text = if (on) "Parar sincronização" else "Iniciar sincronização"
+            this.text = if (on) "Parar" else "Iniciar"
             backgroundTintList = ColorStateList.valueOf(color(if (on) R.color.surface2 else R.color.accent))
         }
+        refreshChecklist()
     }
 
     override fun onLog(text: String) {
-        logLines.addFirst(text); if (logLines.size > 30) logLines.removeLast()
+        if (logLines.firstOrNull() == text) return
+        logLines.addFirst(text); if (logLines.size > 40) logLines.removeLast()
         v<TextView>(R.id.log).text = logLines.joinToString("\n")
     }
 

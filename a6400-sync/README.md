@@ -21,6 +21,7 @@ Abra a pasta no Android Studio e rode (Android 10+).
 - `AutoEdit.saturation`: intensidade da cor.
 
 ## Versões
+- **Só cabo USB (Wi-Fi removido):** reset do canal USB, sessão presa reaproveitada, transação 0 no OpenSession, checagem do modo PC Remoto com explicação, plano B por eventos e lista de verificação na tela.
 A versão aparece no topo do app (ex.: "Versão 1.12 (build 12)"). Cada build do GitHub gera um número novo; instale sempre o maior.
 
 - **Conexão manual corrigida:** detecta a câmera testando se ela responde, sem depender do IP. Ao voltar das Configurações de Wi-Fi, conecta sozinho. Lista na Atividade o IP e o gateway de cada Wi-Fi.

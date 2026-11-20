@@ -20,6 +20,8 @@ object SyncBus {
     var state = State.OFF; private set
     var stateText = "Desconectada"; private set
     var total = 0; var kept = 0
+    /** null = ainda não sabe; true = câmera aceitou PC Remoto; false = modo errado */
+    @Volatile var pcRemote: Boolean? = null
     val recent = ArrayDeque<PhotoEvent>()
 
     fun state(s: State, text: String) { state = s; stateText = text; main.post { listener?.onState(s, text) } }

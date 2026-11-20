@@ -4,15 +4,12 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
-import android.content.Context
 import android.content.Intent
-import android.net.ConnectivityManager
-import android.net.Network
-import android.net.NetworkCapabilities
-import android.net.NetworkRequest
+import android.hardware.usb.UsbManager
 import android.os.IBinder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
@@ -21,96 +18,60 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
- * Serviço em primeiro plano: fica conectado na câmera e, a cada disparo,
- * baixa -> depura -> edita -> organiza. Download e processamento rodam em
- * paralelo (fila), então você pode continuar fotografando sem esperar.
+ * Serviço em primeiro plano: mantém a conexão pelo cabo e, a cada disparo,
+ * baixa → depura → edita → organiza. Download e processamento em paralelo (fila).
  */
 class SyncService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val queue = Channel<SonyCamera.Photo>(capacity = 50)
-    private var camera: SonyCamera? = null
-    private var diagnosed = false
-    private var cameraJob: kotlinx.coroutines.Job? = null
-    private var count = 0; private var kept = 0
-
+    @Volatile private var camera: SonyCamera? = null
+    private var cameraJob: Job? = null
+    private var processJob: Job? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startForeground(1, notification("Procurando a câmera…"))
-        if (intent?.getBooleanExtra("usb", false) == true) {
-            cameraJob?.cancel(); cameraJob = scope.launch { runUsb() }
-            scope.launch { processLoop() }
-            return START_STICKY
-        }
-        CameraNetwork.listener = { n ->
-            cameraJob?.cancel()
-            if (n != null) cameraJob = scope.launch { runCamera(n) }
-            else status("Conexão caiu. Wi-Fi da câmera perdido")
-        }
-        scope.launch {
-            val n = CameraNetwork.network ?: CameraNetwork.findExisting(this@SyncService) { log(it) }
-            if (n != null) { log("Usando rede da câmera (${CameraNetwork.host}). IP do celular: ${CameraNetwork.ipOf(this@SyncService, n)}"); cameraJob = scope.launch { runCamera(n) } }
-            else status("Conexão caiu. Câmera não respondeu no Wi-Fi")
-        }
-        scope.launch { processLoop() }
+        startForeground(1, notification("Conectando pelo cabo…"))
+        if (processJob?.isActive != true) processJob = scope.launch { processLoop() }
+        if (cameraJob?.isActive != true) cameraJob = scope.launch { runUsb() }
         return START_STICKY
     }
 
-    /** Modo cabo: PTP pelo USB, mesma lógica Sony do Wi-Fi. */
     private suspend fun runUsb() {
-        val um = getSystemService(android.hardware.usb.UsbManager::class.java)
+        val um = getSystemService(UsbManager::class.java)
         var fails = 0
+        var lastProblem = ""
         while (scope.isActive) {
             val dev = UsbCamera.find(um)
-            if (dev == null) { status("Conexão caiu. Cabo desconectado ou câmera fora do modo PC Remoto"); delay(3000); continue }
-            if (!um.hasPermission(dev)) { status("Conexão caiu. Sem permissão do USB — abra o app e toque em Iniciar"); delay(3000); continue }
+            val problem = when {
+                dev != null && !um.hasPermission(dev) -> "Sem permissão do USB — abra o app e toque em Iniciar"
+                dev != null -> ""
+                UsbCamera.sonyWithoutPtp(um) != null -> "Câmera no modo Armazenamento em Massa. ${SonyCamera.PC_REMOTE_HELP}"
+                um.deviceList.isEmpty() -> "Cabo desconectado (ou OTG desligado no celular)"
+                else -> "Aparelho USB não reconhecido como câmera"
+            }
+            if (problem.isNotEmpty()) {
+                SyncBus.pcRemote = null
+                if (problem != lastProblem) { status("Aguardando: $problem"); lastProblem = problem }
+                delay(2000); continue
+            }
+            lastProblem = ""
             try {
-                log("Cabo: ${UsbCamera.describe(dev)}")
-                status("Conectando na a6400 pelo cabo…")
+                log("Cabo: ${UsbCamera.describe(dev!!)}")
+                status("Conectando na câmera…")
                 val cam = SonyCamera(UsbCamera.open(um, dev)) { log(it) }.also { camera = it }
                 cam.connect()
+                SyncBus.pcRemote = true
                 fails = 0
-                status("Conectada pelo cabo! Pode fotografar.")
+                status("Conectada! Pode fotografar.")
                 cam.listen(onPhoto = { queue.trySend(it) }, onSkipped = { log("Vídeo ignorado: $it") })
             } catch (e: Exception) {
                 fails++
-                status("Conexão caiu. Tentando de novo…")
-                log("ERRO: ${e.javaClass.simpleName}: ${e.message}")
-                camera?.close()
-                delay(if (fails > 3) 10000 else 3000)
-            }
-        }
-    }
-
-    private suspend fun runCamera(network: Network) {
-        var fails = 0
-        while (scope.isActive) {
-            try {
-                if (fails % 3 == 0) {
-                    status("Procurando o endereço da câmera…")
-                    if (!CameraNetwork.locate(this, network) { log(it) }) {
-                        fails++
-                        status("Conexão caiu. Câmera não respondeu na porta de controle")
-                        if (!diagnosed) { diagnosed = true; Diagnostics.run(network, CameraNetwork.host) { log(it) } }
-                        delay(if (fails > 3) 15000 else 5000); continue
-                    }
-                }
-                status("Conectando na a6400 (${CameraNetwork.host})…")
-                val cam = SonyCamera(network.socketFactory, Settings(this).deviceId, CameraNetwork.host) { log(it) }.also { camera = it }
-                cam.connect()
-                fails = 0
-                status("Conectada! Pode fotografar.")
-                cam.listen(
-                    onPhoto = { queue.trySend(it) },
-                    onSkipped = { log("Vídeo ignorado: $it") },
-                )
-            } catch (e: Exception) {
-                fails++
-                status("Conexão caiu. Tentando de novo…")
-                log("ERRO: ${e.javaClass.simpleName}: ${e.message}")
-                camera?.close()
-                delay(if (fails > 3) 15000 else 4000)
+                if (e.message?.contains("PC Remoto") == true) SyncBus.pcRemote = false
+                log("ERRO: ${e.message ?: e.javaClass.simpleName}")
+                status("Erro. Tentando de novo…")
+                camera?.close(); camera = null
+                delay(if (fails > 3) 8000 else 2500)
             }
         }
     }
@@ -121,7 +82,7 @@ class SyncService : Service() {
         for (photo in queue) {
             settings.applyToEngines()
             try {
-                if (photo.format == SonyCamera.FMT_ARW) {          // RAW: guarda original (edição de RAW fica pra próxima fase)
+                if (photo.format == SonyCamera.FMT_ARW || photo.fileName.endsWith(".ARW", true)) {
                     org.save("Originais", photo.fileName, photo.bytes, "image/x-sony-arw")
                     log("RAW salvo: ${photo.fileName}"); continue
                 }
@@ -139,27 +100,31 @@ class SyncService : Service() {
                     log("✗ ${photo.fileName}: ${t.reasons.joinToString()}")
                 }
                 notifyText("${SyncBus.kept}/${SyncBus.total} aprovadas")
-            } catch (e: Exception) { log("Erro em ${photo.fileName}: ${e.message}") }
+            } catch (e: Throwable) { log("Erro em ${photo.fileName}: ${e.message}") }
         }
     }
 
     private fun status(text: String) {
         val st = when {
             text.startsWith("Conectada") -> SyncBus.State.CONNECTED
-            text.startsWith("Conexão caiu") -> SyncBus.State.ERROR
+            text.startsWith("Erro") || text.startsWith("Aguardando") -> SyncBus.State.ERROR
             else -> SyncBus.State.SEARCHING
         }
         SyncBus.state(st, text); SyncBus.log(text); notifyText(text)
     }
+
     private fun log(text: String) = SyncBus.log(text)
     private fun notifyText(text: String) = getSystemService(NotificationManager::class.java).notify(1, notification(text))
 
     private fun notification(text: String): Notification {
-        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel("sync", "Sincronização", NotificationManager.IMPORTANCE_LOW))
         return Notification.Builder(this, "sync").setContentTitle("A6400 Sync").setContentText(text)
             .setSmallIcon(android.R.drawable.ic_menu_camera).setOngoing(true).build()
     }
 
-    override fun onDestroy() { CameraNetwork.listener = null; CameraNetwork.release(this); SyncBus.state(SyncBus.State.OFF, "Desconectada"); camera?.close(); scope.cancel(); super.onDestroy() }
+    override fun onDestroy() {
+        SyncBus.state(SyncBus.State.OFF, "Desconectada")
+        camera?.close(); scope.cancel(); super.onDestroy()
+    }
 }

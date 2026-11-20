@@ -1,10 +1,14 @@
 package com.a6400sync
 
-/** Canal PTP genérico: Wi-Fi (PTP/IP) ou cabo USB. A lógica Sony é a mesma nos dois. */
+class PtpException(msg: String, val code: Int = 0) : Exception(msg)
+data class PtpResponse(val code: Int, val params: List<Int>, val data: ByteArray)
+data class PtpEvent(val code: Int, val params: List<Int>)
+
+/** Canal PTP (aqui: cabo USB). */
 interface PtpTransport {
     fun open()
-    fun operation(code: Int, vararg params: Int): PtpIpClient.Response
-    fun operationOut(code: Int, data: ByteArray, vararg params: Int): PtpIpClient.Response
-    fun nextEvent(): PtpIpClient.Event
+    fun operation(code: Int, vararg params: Int): PtpResponse
+    fun operationOut(code: Int, data: ByteArray, vararg params: Int): PtpResponse
+    fun nextEvent(): PtpEvent
     fun close()
 }

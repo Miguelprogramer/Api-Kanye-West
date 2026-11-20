@@ -2,32 +2,27 @@ package com.a6400sync
 
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import java.util.UUID
-import javax.net.SocketFactory
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.concurrent.thread
 
 /**
- * Camada Sony sobre PTP/IP, seguindo a implementação do libgphoto2 (camlibs/ptp2):
- *  1. OpenSession
- *  2. SDIO_Connect(1), SDIO_Connect(2)
- *  3. SDIO_GetExtDeviceInfo(0x12C, 1) — repete até vir dado; câmeras pré-2020 (a6400) respondem versão 0xC8
- *  4. SDIO_Connect(3)
- *  5. Prioridade de controle = aplicativo
- * Fotos novas: NÃO se confia só no evento. Lê a propriedade 0xD215 (ObjectInMemory);
- * só quando ela for >= 0x8000 existe foto no handle 0xFFFFC001. Acessar esse handle
- * sem foto pendente pode travar o firmware da câmera.
+ * Protocolo Sony "PC Remoto", seguindo o libgphoto2 (camlibs/ptp2):
+ *  OpenSession → GetDeviceInfo → SDIO_Connect(1,2) → SDIO_GetExtDeviceInfo → SDIO_Connect(3) → prioridade.
+ * Foto nova: lê a propriedade 0xD215; quando >= 0x8000 há foto no handle 0xFFFFC001.
+ * Se essa propriedade não puder ser lida, usa o evento 0xC201 como plano B.
  */
 class SonyCamera(private val ptp: PtpTransport, private val log: (String) -> Unit = {}) {
-    /** Atalho pro modo Wi-Fi. */
-    constructor(socketFactory: SocketFactory, guid: UUID, host: String = "192.168.122.1", log: (String) -> Unit = {}) :
-        this(PtpIpClient(host = host, socketFactory = socketFactory, guid = guid), log)
     @Volatile private var running = true
     private val wake = Object()
+    private val eventsSeen = AtomicInteger(0)
     var protocolVersion = 0xC8; private set
+    var model: String? = null; private set
 
     data class Photo(val fileName: String, val format: Int, val bytes: ByteArray)
+    data class DeviceInfo(val manufacturer: String, val model: String, val ops: Set<Int>)
 
     companion object {
+        const val OP_GET_DEVICE_INFO = 0x1001
         const val OP_OPEN_SESSION = 0x1002
         const val OP_GET_OBJECT_INFO = 0x1008
         const val OP_GET_OBJECT = 0x1009
@@ -38,52 +33,76 @@ class SonyCamera(private val ptp: PtpTransport, private val log: (String) -> Uni
         const val PROP_OBJECT_IN_MEMORY = 0xD215
         const val PROP_PRIORITY_KEY = 0xD25A
         const val SHOT_HANDLE = 0xFFFFC001.toInt()
+        const val RC_SESSION_ALREADY_OPEN = 0x201E
 
         const val FMT_JPEG = 0x3801
         const val FMT_ARW = 0xB101
         val ACCEPTED_FORMATS = setOf(FMT_JPEG, FMT_ARW)
         val ACCEPTED_EXT = setOf("jpg", "jpeg", "arw")
+        const val PC_REMOTE_HELP = "Na câmera: MENU → Configuração (maleta) → Conexão USB → PC Remoto. Depois desplugue e plugue o cabo."
     }
 
     fun connect() {
-        log("1/4 Abrindo canal com a câmera…")
+        log("1/5 Abrindo o canal USB…")
         ptp.open()
-        log("2/4 Abrindo sessão…")
-        ptp.operation(OP_OPEN_SESSION, 1)
-        log("3/4 Autenticando com a Sony…")
+        log("2/5 Abrindo sessão…")
+        try { ptp.operation(OP_OPEN_SESSION, 1) }
+        catch (e: PtpException) {
+            if (e.code == RC_SESSION_ALREADY_OPEN) log("Sessão anterior ainda aberta — reaproveitando") else throw e
+        }
+        log("3/5 Identificando a câmera…")
+        val info = runCatching { parseDeviceInfo(ptp.operation(OP_GET_DEVICE_INFO).data) }.getOrNull()
+        if (info != null) {
+            model = info.model
+            log("Câmera: ${info.manufacturer} ${info.model}")
+            if (OP_SDIO_CONNECT !in info.ops)
+                throw PtpException("A câmera está no modo MTP/arquivos, não no PC Remoto. $PC_REMOTE_HELP")
+        }
+        log("4/5 Autenticando com a Sony…")
         ptp.operation(OP_SDIO_CONNECT, 1, 0, 0)
         ptp.operation(OP_SDIO_CONNECT, 2, 0, 0)
-        var info = ByteArray(0)
+        var ext = ByteArray(0)
         for (i in 1..20) {
-            info = runCatching { ptp.operation(OP_SDIO_GET_EXT_DEVICE_INFO, 0x12C, 1).data }
+            ext = runCatching { ptp.operation(OP_SDIO_GET_EXT_DEVICE_INFO, 0x12C, 1).data }
                 .recoverCatching { ptp.operation(OP_SDIO_GET_EXT_DEVICE_INFO, 0xC8).data }
                 .getOrDefault(ByteArray(0))
-            if (info.size >= 2) break
+            if (ext.size >= 2) break
             Thread.sleep(100)
         }
-        if (info.size >= 2) protocolVersion = ByteBuffer.wrap(info).order(ByteOrder.LITTLE_ENDIAN).short.toInt() and 0xFFFF
+        if (ext.size >= 2) protocolVersion = ByteBuffer.wrap(ext).order(ByteOrder.LITTLE_ENDIAN).short.toInt() and 0xFFFF
         log("Protocolo Sony: 0x%X".format(protocolVersion))
         ptp.operation(OP_SDIO_CONNECT, 3, 0, 0)
-        log("4/4 Assumindo controle…")
+        log("5/5 Assumindo controle…")
         runCatching { ptp.operationOut(OP_SET_EXT_DEVICE_PROP, byteArrayOf(1), PROP_PRIORITY_KEY) }
             .onFailure { log("Aviso: prioridade não definida (${it.message})") }
     }
 
     /** Loop: entrega cada foto nova assim que ela aparece na memória da câmera. */
     fun listen(onPhoto: (Photo) -> Unit, onSkipped: (String) -> Unit) {
-        // Canal de eventos só acorda o loop mais cedo; a fonte da verdade é a 0xD215.
         thread(isDaemon = true, name = "ptp-events") {
-            try { while (running) { ptp.nextEvent(); synchronized(wake) { wake.notifyAll() } } } catch (_: Exception) {}
+            try {
+                while (running) {
+                    val ev = ptp.nextEvent()
+                    if (ev.code == 0xC201 || ev.code == 0x4002) eventsSeen.incrementAndGet()
+                    synchronized(wake) { wake.notifyAll() }
+                }
+            } catch (_: Exception) {}
         }
-        var lastLogged = -1
+        var propWarned = false
         while (running) {
-            val pending = objectInMemory()
-            if (pending != lastLogged && pending >= 0) { lastLogged = pending }
-            if (pending >= 0x8000) {
+            val pending = runCatching { objectInMemory() }.getOrElse { -1 }
+            val ready = when {
+                pending >= 0x8000 -> true
+                pending < 0 && eventsSeen.get() > 0 -> {           // plano B: confia no evento
+                    if (!propWarned) { propWarned = true; log("Aviso: usando eventos da câmera pra detectar fotos") }
+                    eventsSeen.decrementAndGet(); Thread.sleep(300); true
+                }
+                else -> false
+            }
+            if (ready) {
                 val info = ptp.operation(OP_GET_OBJECT_INFO, SHOT_HANDLE).data
                 val (format, name) = parseObjectInfo(info)
-                // Sempre baixa pra esvaziar a memória da câmera; só repassa se for foto.
-                val bytes = ptp.operation(OP_GET_OBJECT, SHOT_HANDLE).data
+                val bytes = ptp.operation(OP_GET_OBJECT, SHOT_HANDLE).data   // sempre baixa pra esvaziar a memória
                 val ext = name.substringAfterLast('.', "").lowercase()
                 if (format in ACCEPTED_FORMATS || ext in ACCEPTED_EXT) onPhoto(Photo(name, format, bytes)) else onSkipped(name)
                 continue
@@ -92,15 +111,13 @@ class SonyCamera(private val ptp: PtpTransport, private val log: (String) -> Uni
         }
     }
 
-    /** Lê 0xD215 em GetAllExtDevicePropInfo. Retorna -1 se não achar. */
     fun objectInMemory(): Int {
         val d = ptp.operation(OP_GET_ALL_EXT_DEVICE_PROP_INFO).data
         return SonyProps.find(d, PROP_OBJECT_IN_MEMORY, protocolVersion)?.toInt() ?: -1
     }
 
-    fun close() { running = false; ptp.close() }
+    fun close() { running = false; synchronized(wake) { wake.notifyAll() }; ptp.close() }
 
-    /** ObjectInfo do PTP: formato no offset 4, nome do arquivo (string PTP) no offset 52. */
     private fun parseObjectInfo(d: ByteArray): Pair<Int, String> {
         val bb = ByteBuffer.wrap(d).order(ByteOrder.LITTLE_ENDIAN)
         val format = if (d.size >= 6) bb.getShort(4).toInt() and 0xFFFF else 0
@@ -109,6 +126,17 @@ class SonyCamera(private val ptp: PtpTransport, private val log: (String) -> Uni
                    else "DSC_${System.currentTimeMillis()}.JPG"
         return format to name
     }
+}
+
+/** DeviceInfo do PTP: só o que precisamos (fabricante, modelo, operações suportadas). */
+fun parseDeviceInfo(d: ByteArray): SonyCamera.DeviceInfo {
+    val b = ByteBuffer.wrap(d).order(ByteOrder.LITTLE_ENDIAN)
+    fun str(): String { val n = b.get().toInt() and 0xFF; if (n == 0) return ""; val s = ByteArray(n * 2).also { b.get(it) }; return String(s, Charsets.UTF_16LE).trimEnd('\u0000') }
+    fun arr(): Set<Int> { val n = b.int; return (0 until n).map { b.short.toInt() and 0xFFFF }.toSet() }
+    b.short; b.int; b.short; str(); b.short
+    val ops = arr(); arr(); arr(); arr(); arr()
+    val manu = str(); val model = str()
+    return SonyCamera.DeviceInfo(manu, model, ops)
 }
 
 /** Parser do dataset de propriedades Sony (formato do libgphoto2: ptp_unpack_Sony_DPD). */
@@ -121,11 +149,11 @@ object SonyProps {
             if (b.remaining() < 6) return null
             val code = b.short.toInt() and 0xFFFF
             val type = b.short.toInt() and 0xFFFF
-            b.get(); b.get()                       // getset, isEnabled
-            skipValue(b, type)                     // valor padrão
+            b.get(); b.get()
+            skipValue(b, type)
             val current = readValue(b, type)
             if (code == wanted) return current
-            when (b.get().toInt()) {               // form flag
+            when (b.get().toInt()) {
                 1 -> repeat(3) { skipValue(b, type) }
                 2 -> {
                     repeat(b.short.toInt() and 0xFFFF) { skipValue(b, type) }

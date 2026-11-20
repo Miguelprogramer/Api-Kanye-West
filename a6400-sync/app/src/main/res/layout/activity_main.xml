@@ -16,6 +16,13 @@
             android:layout_marginStart="8dp" android:text="Desconectada" android:textColor="@color/muted" android:textSize="14sp"/>
     </LinearLayout>
 
+    <!-- Checklist da conexão -->
+    <com.google.android.material.card.MaterialCardView style="@style/Card" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:layout_marginTop="16dp">
+        <TextView android:id="@+id/checklist" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:textColor="@color/text" android:textSize="14sp" android:lineSpacingExtra="6dp"/>
+    </com.google.android.material.card.MaterialCardView>
+
     <!-- Estatísticas -->
     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
         android:orientation="horizontal" android:layout_marginTop="20dp">
@@ -69,17 +76,12 @@
     <!-- Botão principal -->
     <com.google.android.material.button.MaterialButton android:id="@+id/startStop"
         android:layout_width="match_parent" android:layout_height="64dp" android:layout_marginTop="24dp"
-        android:text="Iniciar sincronização" android:textSize="16sp" app:cornerRadius="18dp" app:icon="@android:drawable/ic_menu_camera"/>
+        android:text="Iniciar" android:textSize="16sp" app:cornerRadius="18dp" app:icon="@android:drawable/ic_menu_camera"/>
 
     <!-- Ajustes -->
     <TextView style="@style/Label" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="28dp" android:text="Ajustes"/>
     <com.google.android.material.card.MaterialCardView style="@style/Card" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp">
         <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">
-            <com.google.android.material.textfield.TextInputLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:hint="Senha do Wi-Fi da câmera" app:endIconMode="password_toggle" android:layout_marginBottom="8dp">
-                <com.google.android.material.textfield.TextInputEditText android:id="@+id/wifiPass" android:layout_width="match_parent"
-                    android:layout_height="wrap_content" android:inputType="textPassword" android:textColor="@color/text"/>
-            </com.google.android.material.textfield.TextInputLayout>
             <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/swEdit" android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:text="Editar automaticamente" android:textColor="@color/text" android:checked="true"/>
             <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/swDiscard" android:layout_width="match_parent" android:layout_height="wrap_content"
@@ -111,8 +113,6 @@
         android:textColor="@color/muted" android:textSize="13sp" android:fontFamily="monospace" android:lineSpacingExtra="4dp"/>
 
     <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="24dp" android:textColor="@color/muted" android:textSize="12sp"
-        android:text="Pelo CABO (recomendado): na câmera, Menu → Configuração → Conexão USB → PC Remoto. Ligue a câmera no celular com cabo USB-C ↔ Micro-USB (OTG) e toque em Iniciar.
-
-Pelo Wi-Fi: Menu → Rede → Ctrl c/ Smartphone, digite a senha em Ajustes e toque em Iniciar."/>
+        android:text="Como usar: 1) Na câmera: MENU → Configuração (maleta) → Conexão USB → PC Remoto. 2) Ligue a câmera no celular com cabo USB-C ↔ Micro-USB (OTG). 3) Toque em Iniciar e aceite a permissão do USB. Dica: em PC Remoto, ajuste na câmera o destino das fotos para PC+Câmera."/>
 </LinearLayout>
 </ScrollView>
