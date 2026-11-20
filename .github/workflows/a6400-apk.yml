@@ -17,6 +17,6 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          gradle testDebugUnitTest assembleDebug --no-daemon --info 2>&1 | grep -E "LOG:|OPS:|USB |ERRO:|Test|FAIL|BUILD|^e: "
+          gradle testDebugUnitTest assembleDebug --no-daemon --info 2>&1 | grep -E "LOG:|OPS:|USB |CardImporterTest||ERRO:|Test|FAIL|BUILD|^e: "
       - uses: actions/upload-artifact@v4
         with: { name: A6400Sync-apk, path: a6400-sync/app/build/outputs/apk/debug/app-debug.apk }

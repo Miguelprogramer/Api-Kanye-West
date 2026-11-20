@@ -231,6 +231,8 @@ class MainActivity : AppCompatActivity(), SyncBus.Listener {
 
     override fun onCamera(model: String?, props: Map<Int, SonyProps.Prop>) {
         val connected = SyncBus.camera != null
+        v<View>(R.id.camCard).visibility = if (connected) View.VISIBLE else View.GONE
+        v<View>(R.id.camLabel).visibility = if (connected) View.VISIBLE else View.GONE
         listOf(R.id.btnShoot, R.id.btnAf, R.id.btnLive).forEach { v<View>(it).isEnabled = connected }
         if (!connected && v<MaterialButton>(R.id.btnLive).text != "Ao vivo") liveOff()
         v<TextView>(R.id.camModel).text = if (connected) "Sony ${model ?: "a6400"}" else "Câmera desconectada"
@@ -246,21 +248,13 @@ class MainActivity : AppCompatActivity(), SyncBus.Listener {
     }
 
     private fun start() {
+        if (waitingCard > 0) return   // já esperando o cartão abrir
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 2)
 
-        val dev = UsbCamera.find(usbManager)
-        if (dev == null) {
-            refreshChecklist()
-            val msg = when {
-                UsbCamera.sonyWithoutPtp(usbManager) != null -> "A câmera está plugada no modo Armazenamento em Massa.\n\n${SonyCamera.PC_REMOTE_HELP}"
-                usbManager.deviceList.isEmpty() -> "O celular não está vendo nada no cabo.\n\n• Use cabo USB-C ↔ Micro-USB com OTG (alguns cabos só carregam)\n• No Xiaomi: Configurações → Configurações adicionais → ative OTG (se existir)\n• Câmera ligada e no modo PC Remoto\n\n${SonyCamera.PC_REMOTE_HELP}"
-                else -> "Aparelho USB detectado, mas não como câmera: ${usbManager.deviceList.values.joinToString { UsbCamera.describe(it) }}\n\n${SonyCamera.PC_REMOTE_HELP}"
-            }
-            dialog("Câmera não encontrada no cabo", msg)
-            return
-        }
-        onLog("Cabo detectado: ${UsbCamera.describe(dev)}")
+        // Câmera em modo PTP (PC Remoto)? Usa o modo ao vivo. Senão, importa do cartão.
+        val dev = UsbCamera.find(usbManager) ?: return importFlow()
+        onLog("Cabo detectado (PC Remoto): ${UsbCamera.describe(dev)}")
         if (!usbManager.hasPermission(dev)) {
             val pi = PendingIntent.getBroadcast(this, 0, Intent(UsbCamera.ACTION_PERMISSION).setPackage(packageName),
                 PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
@@ -273,17 +267,110 @@ class MainActivity : AppCompatActivity(), SyncBus.Listener {
         refreshChecklist()
     }
 
+    // ───────────── Importar do cartão (Armazenamento em Massa) ─────────────
+
+    private val ui = android.os.Handler(android.os.Looper.getMainLooper())
+    private var waitingCard = 0
+    private var pendingUuid: String? = null
+
+    private val treePicker = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) { r ->
+        val uri = r.data?.data
+        val uuid = pendingUuid
+        if (uri == null || uuid == null) { onLog("Acesso ao cartão cancelado"); refreshChecklist(); return@registerForActivityResult }
+        if (!CardImporter.treeLooksRight(uri, uuid)) {
+            dialog("Pasta errada", "Escolha a pasta DCIM do cartão da câmera (ou a raiz do cartão) e toque em \"Usar esta pasta\".")
+            return@registerForActivityResult
+        }
+        CardImporter.saveTree(this, uuid, uri)
+        onLog("Acesso ao cartão liberado ✓")
+        importFlow()
+    }
+
+    /** Acha o cartão montado → garante acesso → decide o que importar → inicia. */
+    private fun importFlow() {
+        val card = CardImporter.mountedCards(this).firstOrNull()
+        if (card == null) {
+            if (usbManager.deviceList.isNotEmpty() && waitingCard < 25) {
+                // O Android leva alguns segundos pra abrir o cartão depois de plugar
+                if (waitingCard == 0) { onLog("Câmera plugada. Esperando o celular abrir o cartão…"); onState(SyncBus.State.SEARCHING, "Abrindo o cartão…") }
+                waitingCard++
+                ui.postDelayed({ importFlow() }, 1000)
+                return
+            }
+            waitingCard = 0
+            onState(SyncBus.State.OFF, "Desconectada")
+            refreshChecklist()
+            dialog("Cartão não encontrado",
+                if (usbManager.deviceList.isEmpty())
+                    "O celular não está vendo a câmera no cabo.\n\n• Use cabo USB-C ↔ Micro-USB que passe dados (OTG)\n• Câmera ligada, com cartão\n• Na câmera: MENU → Configuração (maleta) → Conexão USB → Armaz. Massa (ou Auto)"
+                else
+                    "A câmera está plugada, mas o celular não abriu o cartão.\n\n• Abra o app Arquivos do celular e veja se aparece um \"USB\"/pendrive\n• No Xiaomi: Configurações → Configurações adicionais → OTG (ligar, se existir)\n• Desplugue e plugue de novo\n\nAparelhos no cabo: " + usbManager.deviceList.values.joinToString { UsbCamera.describe(it) })
+            return
+        }
+        waitingCard = 0
+        val uuid = card.uuid!!
+        onLog("Cartão aberto: ${CardImporter.label(card, this)}")
+        val tree = CardImporter.savedTree(this, uuid)
+        if (tree == null) {
+            pendingUuid = uuid
+            refreshChecklist()
+            com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                .setTitle("Liberar acesso ao cartão")
+                .setMessage("Só na primeira vez com este cartão: na próxima tela, abra a pasta DCIM, toque em \"Usar esta pasta\" e depois em \"Permitir\".")
+                .setPositiveButton("Continuar") { _, _ -> treePicker.launch(CardImporter.permissionIntent(card)) }
+                .setNegativeButton("Cancelar", null).show()
+            return
+        }
+        refreshChecklist()
+        if (ImportedStore(this).knowsCard(uuid)) { launchImport(tree, uuid, 0L); return }
+
+        // Primeira vez com este cartão: pergunta o que fazer com as fotos que já estão nele
+        onState(SyncBus.State.SEARCHING, "Contando fotos do cartão…")
+        Thread {
+            val all = runCatching { CardImporter.listPhotos(this, tree) }.getOrElse { e -> runOnUiThread { onLog("Erro ao ler o cartão: ${e.message}") }; return@Thread }
+            val today = CardImporter.startOfToday()
+            val nToday = all.count { it.modified >= today }
+            runOnUiThread {
+                onState(SyncBus.State.OFF, "Desconectada")
+                val opts = arrayOf("Só as de hoje ($nToday)", "Todas (${all.size})", "Nenhuma agora — só as que eu tirar daqui pra frente")
+                com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                    .setTitle("Encontrei ${all.size} fotos neste cartão")
+                    .setItems(opts) { _, i ->
+                        when (i) {
+                            0 -> launchImport(tree, uuid, today)
+                            1 -> launchImport(tree, uuid, 0L)
+                            else -> { launchImport(tree, uuid, Long.MAX_VALUE) }
+                        }
+                    }.show()
+            }
+        }.start()
+    }
+
+    private fun launchImport(tree: android.net.Uri, uuid: String, since: Long) {
+        startForegroundService(Intent(this, SyncService::class.java).setAction(SyncService.ACTION_IMPORT)
+            .putExtra(SyncService.EXTRA_TREE, tree.toString()).putExtra(SyncService.EXTRA_UUID, uuid).putExtra(SyncService.EXTRA_SINCE, since))
+        onState(SyncBus.State.SEARCHING, "Lendo o cartão…")
+    }
+
     /** Lista do que falta, sempre visível. */
     private fun refreshChecklist() {
-        val dev = UsbCamera.find(usbManager)
-        val sonyNoPtp = UsbCamera.sonyWithoutPtp(usbManager) != null
         fun line(ok: Boolean?, text: String) = (when (ok) { true -> "✅"; false -> "❌"; null -> "⏳" }) + "  " + text
-        val lines = listOf(
-            line(dev != null || sonyNoPtp, if (dev != null || sonyNoPtp) "Câmera no cabo" else "Câmera no cabo — nada detectado (cabo OTG / OTG do celular)"),
-            line(if (sonyNoPtp) false else if (dev != null && SyncBus.pcRemote != false) true else SyncBus.pcRemote, if (sonyNoPtp || SyncBus.pcRemote == false) "Modo PC Remoto — mude na câmera: Conexão USB → PC Remoto" else "Modo PC Remoto"),
-            line(dev?.let { usbManager.hasPermission(it) }, "Permissão do USB"),
+        val ptp = UsbCamera.find(usbManager)
+        val lines = if (ptp != null) listOf(
+            line(true, "Câmera no cabo (modo PC Remoto)"),
+            line(usbManager.hasPermission(ptp), "Permissão do USB"),
             line(SyncBus.state == SyncBus.State.CONNECTED, "Conectada e pronta pra fotografar"),
-        )
+        ) else {
+            val card = CardImporter.mountedCards(this).firstOrNull()
+            val plugged = usbManager.deviceList.isNotEmpty() || card != null
+            val access = card?.uuid?.let { CardImporter.savedTree(this, it) != null }
+            listOf(
+                line(plugged, if (plugged) "Câmera no cabo" else "Câmera no cabo — nada detectado"),
+                line(if (card != null) true else if (plugged) null else false, "Cartão aberto pelo celular"),
+                line(access, "Acesso à pasta DCIM"),
+                line(if (SyncBus.state == SyncBus.State.SEARCHING) null else card != null && access == true, "Importação automática"),
+            )
+        }
         v<TextView>(R.id.checklist).text = lines.joinToString("\n")
     }
 
@@ -318,7 +405,7 @@ class MainActivity : AppCompatActivity(), SyncBus.Listener {
 
     override fun onState(state: SyncBus.State, text: String) {
         val (c, label) = when (state) {
-            SyncBus.State.OFF -> R.color.muted to "Desconectada"
+            SyncBus.State.OFF -> R.color.muted to text.ifBlank { "Desconectada" }
             SyncBus.State.SEARCHING -> R.color.warn to text
             SyncBus.State.CONNECTED -> R.color.ok to "Conectada pelo cabo · pode fotografar"
             SyncBus.State.ERROR -> R.color.bad to text
@@ -327,7 +414,7 @@ class MainActivity : AppCompatActivity(), SyncBus.Listener {
         v<TextView>(R.id.statusText).text = label
         v<MaterialButton>(R.id.startStop).apply {
             val on = state != SyncBus.State.OFF
-            this.text = if (on) "Parar" else "Iniciar"
+            this.text = if (on) "Parar" else "Importar do cartão"
             backgroundTintList = ColorStateList.valueOf(color(if (on) R.color.surface2 else R.color.accent))
         }
         refreshChecklist()

@@ -14,9 +14,11 @@ import java.util.Locale
  *   Pictures/A6400/2026-11-19/Descartadas    (cópia das reprovadas; nada é apagado)
  */
 class Organizer(private val ctx: Context) {
-    private val day = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+    private val fmt = SimpleDateFormat("yyyy-MM-dd", Locale.US)
 
-    fun save(folder: String, fileName: String, bytes: ByteArray, mime: String = "image/jpeg") {
+    /** [taken] = quando a foto foi tirada (vai pra pasta daquele dia). */
+    fun save(folder: String, fileName: String, bytes: ByteArray, mime: String = "image/jpeg", taken: Long = System.currentTimeMillis()) {
+        val day = fmt.format(Date(if (taken > 0) taken else System.currentTimeMillis()))
         val values = ContentValues().apply {
             put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
             put(MediaStore.Images.Media.MIME_TYPE, mime)

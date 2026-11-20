@@ -24,8 +24,8 @@
     </com.google.android.material.card.MaterialCardView>
 
     <!-- Painel da câmera (PC Remoto) -->
-    <TextView style="@style/Label" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="24dp" android:text="Câmera"/>
-    <com.google.android.material.card.MaterialCardView style="@style/Card" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp">
+    <TextView android:id="@+id/camLabel" style="@style/Label" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="24dp" android:text="Câmera" android:visibility="gone"/>
+    <com.google.android.material.card.MaterialCardView android:id="@+id/camCard" style="@style/Card" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:visibility="gone">
         <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">
             <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
                 <TextView android:id="@+id/camModel" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
@@ -86,7 +86,7 @@
             <ImageView android:id="@+id/preview" android:layout_width="match_parent" android:layout_height="260dp"
                 android:scaleType="centerCrop" android:contentDescription="Última foto"/>
             <TextView android:id="@+id/previewEmpty" android:layout_width="match_parent" android:layout_height="260dp"
-                android:gravity="center" android:text="📷\nAs fotos aparecem aqui assim que você disparar" android:textColor="@color/muted"/>
+                android:gravity="center" android:text="📷\nAs fotos aparecem aqui conforme forem importadas" android:textColor="@color/muted"/>
             <TextView android:id="@+id/previewBadge" android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:layout_gravity="bottom|start" android:layout_margin="12dp" android:background="@drawable/badge"
                 android:paddingHorizontal="12dp" android:paddingVertical="6dp" android:textColor="@color/text" android:visibility="gone"/>
@@ -105,7 +105,7 @@
     <!-- Botão principal -->
     <com.google.android.material.button.MaterialButton android:id="@+id/startStop"
         android:layout_width="match_parent" android:layout_height="64dp" android:layout_marginTop="24dp"
-        android:text="Iniciar" android:textSize="16sp" app:cornerRadius="18dp" app:icon="@android:drawable/ic_menu_camera"/>
+        android:text="Importar do cartão" android:textSize="16sp" app:cornerRadius="18dp" app:icon="@android:drawable/ic_menu_camera"/>
 
     <!-- Ajustes -->
     <TextView style="@style/Label" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="28dp" android:text="Ajustes"/>
@@ -142,6 +142,6 @@
         android:textColor="@color/muted" android:textSize="13sp" android:fontFamily="monospace" android:lineSpacingExtra="4dp"/>
 
     <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="24dp" android:textColor="@color/muted" android:textSize="12sp"
-        android:text="Como usar: 1) Na câmera: MENU → Configuração (maleta) → Conexão USB → PC Remoto. 2) Ligue a câmera no celular com cabo USB-C ↔ Micro-USB (OTG). 3) Toque em Iniciar e aceite a permissão do USB. Dica: em PC Remoto, ajuste na câmera o destino das fotos para PC+Câmera."/>
+        android:text="Como usar: 1) Na câmera: MENU → Configuração (maleta) → Conexão USB → Armaz. Massa (ou Auto). 2) Fotografe normalmente. 3) Quando quiser passar as fotos, ligue a câmera no celular com cabo USB-C ↔ Micro-USB (OTG). O app abre e importa só as fotos novas: ignora vídeos, depura, edita e organiza por data. Na primeira vez com um cartão ele pede acesso à pasta DCIM."/>
 </LinearLayout>
 </ScrollView>
